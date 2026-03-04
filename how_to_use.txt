@@ -1,0 +1,2 @@
+on backend folder: python app.py
+on frontend folder: npm start
