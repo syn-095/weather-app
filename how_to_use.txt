@@ -1,2 +1,8 @@
 on backend folder: python app.py
 on frontend folder: npm start
+
+once deployed:
+every big change:
+- git add .
+- git commit -m "describe your change"
+- git push
