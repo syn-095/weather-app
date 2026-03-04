@@ -13,18 +13,32 @@ export function FullPageLoader() {
 }
 
 export function ErrorState({ message, onRetry }) {
+  const isColdStart = message?.toLowerCase().includes("timeout") ||
+                      message?.toLowerCase().includes("network");
+
   return (
     <div className="rounded-3xl p-8 bg-red-500/10 border border-red-500/20 text-center space-y-4">
-      <div className="text-4xl">⚠️</div>
-      <p className="text-red-300 font-medium">{message}</p>
-      {onRetry && (
-        <button
-          onClick={onRetry}
-          className="px-4 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 text-sm transition-colors border border-red-500/30"
-        >
-          Try again
-        </button>
+      <div className="text-4xl">{isColdStart ? "⏳" : "⚠️"}</div>
+
+      {isColdStart ? (
+        <div className="space-y-2">
+          <p className="text-red-300 font-medium">Backend is waking up…</p>
+          <p className="text-slate-400 text-sm">
+            The free server goes to sleep when inactive.<br />
+            This first load can take up to 30–60 seconds.
+          </p>
+        </div>
+      ) : (
+        <p className="text-red-300 font-medium">{message}</p>
       )}
+
+      <button
+        onClick={onRetry}
+        className="px-4 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30
+                   text-red-300 text-sm transition-colors border border-red-500/30"
+      >
+        Try again
+      </button>
     </div>
   );
 }

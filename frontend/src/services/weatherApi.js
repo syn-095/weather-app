@@ -4,7 +4,7 @@ const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
 
 const api = axios.create({
   baseURL: API_BASE,
-  timeout: 15000,
+  timeout: 60000, // increased from 15000 to 60 seconds to handle Render cold starts
 });
 
 export async function fetchForecast(lat, lon, location = "", days = 7) {
