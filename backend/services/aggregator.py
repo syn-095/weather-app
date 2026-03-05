@@ -167,7 +167,7 @@ def get_weather(lat, lon, location_name="", days=7):
         logger.warning("Air quality failed: %s", exc)
 
     try:
-        raw_marine = marine.fetch_marine(lat, lon, days)
+        raw_marine = marine.fetch_forecast(lat, lon, days)
         if marine.is_available(raw_marine):
             marine_data = marine.normalize(raw_marine)
             sources_used.append("open_meteo_marine")
