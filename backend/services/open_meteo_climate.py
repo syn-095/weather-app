@@ -1,21 +1,16 @@
-"""
-services/open_meteo_climate.py
-Fetches climate normals from Open-Meteo Climate API.
-No API key required. Uses ERA5 reanalysis data.
-Uses a 10-year window (2011-2020) for faster response on free hosting.
-"""
-
 import requests
+from datetime import datetime
 
 BASE_URL = "https://climate-api.open-meteo.com/v1/climate"
 
-
 def fetch_climate_normals(lat: float, lon: float) -> dict:
+    # Fetch a single representative year — fast enough for Render free tier
+    # EC_Earth3P_HR provides data up to 2019
     params = {
         "latitude": lat,
         "longitude": lon,
-        "start_date": "2011-01-01",
-        "end_date": "2020-12-31",
+        "start_date": "2019-01-01",
+        "end_date": "2019-12-31",
         "models": "EC_Earth3P_HR",
         "daily": [
             "temperature_2m_mean",
@@ -29,7 +24,6 @@ def fetch_climate_normals(lat: float, lon: float) -> dict:
     resp = requests.get(BASE_URL, params=params, timeout=25)
     resp.raise_for_status()
     return resp.json()
-
 
 def normalize(raw: dict) -> dict:
     daily = raw.get("daily", {})
@@ -61,13 +55,13 @@ def normalize(raw: dict) -> dict:
     for month_num in sorted(by_month.keys()):
         days = by_month[month_num]
         monthly.append({
-            "month":             month_num,
-            "month_name":        month_names[month_num - 1],
-            "temp_mean_c":       avg(days, "temp_mean"),
-            "temp_max_c":        avg(days, "temp_max"),
-            "temp_min_c":        avg(days, "temp_min"),
-            "precipitation_mm":  avg(days, "precip"),
-            "wind_speed_kmh":    avg(days, "wind"),
+            "month":            month_num,
+            "month_name":       month_names[month_num - 1],
+            "temp_mean_c":      avg(days, "temp_mean"),
+            "temp_max_c":       avg(days, "temp_max"),
+            "temp_min_c":       avg(days, "temp_min"),
+            "precipitation_mm": avg(days, "precip"),
+            "wind_speed_kmh":   avg(days, "wind"),
         })
 
     return {"monthly_normals": monthly}

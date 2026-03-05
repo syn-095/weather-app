@@ -62,10 +62,10 @@ function AvgTempTooltip({ active, payload, label, tUnit }) {
 }
 
 const CHART_TYPES = [
-  { key: "temperature",   label: "Temp",    icon: "🌡" },
-  { key: "precipitation", label: "Precip",  icon: "🌧" },
-  { key: "avgtemp",       label: "Avg Temp", icon: "📊" },
-  { key: "cards",         label: "Cards",   icon: "🃏" },
+  { key: "temperature",   label: "Temp",  icon: "🌡" },
+  { key: "precipitation", label: "Precip", icon: "🌧" },
+  { key: "wind",          label: "Wind",  icon: "💨" },
+  { key: "cards",         label: "Cards", icon: "🃏" },
 ];
 
 export default function HourlyForecast() {
@@ -97,13 +97,12 @@ export default function HourlyForecast() {
 
   // Build chart data
   const chartData = hourlyForDay.map((h) => ({
-    time:        formatHour(h.time),
-    Temp:        fmt(h.temperature_c),
-    "Feels Like": h.feels_like_c != null && h.feels_like_c !== 0
-                   ? fmt(h.feels_like_c)
-                   : null,
-    Precip:      h.precipitation_mm ?? 0,
-    Probability: h.precipitation_probability ?? null,
+    time:         formatHour(h.time),
+    Temp:         fmt(h.temperature_c),
+    "Feels Like": h.feels_like_c != null && h.feels_like_c !== 0 ? fmt(h.feels_like_c) : null,
+    Precip:       h.precipitation_mm ?? 0,
+    Probability:  h.precipitation_probability ?? null,
+    Wind:         fmtWind(h.wind_speed_kmh),
   }));
 
   // Rolling 3-hour average temperature for the avg temp chart
@@ -138,11 +137,10 @@ export default function HourlyForecast() {
 
   return (
     <div className="space-y-4">
-      {/* Summary chips */}
       <div className="grid grid-cols-3 gap-2">
-        <SummaryChip label="Avg Humidity" value={avgHumidity != null ? `${avgHumidity}%` : "—"} color="text-blue-300"  />
-        <SummaryChip label="Avg Wind"     value={`${fmtWind(avgWind)} ${wUnit}`}               color="text-teal-300"  />
-        <SummaryChip label="Total Precip" value={`${totalPrecip.toFixed(1)} mm`}               color="text-sky-300"   />
+        <SummaryChip label="Avg Humidity" value={avgHumidity != null ? `${avgHumidity}%` : "—"} color="text-blue-300" />
+        <SummaryChip label="Avg Temp"     value={`${fmt(dayAvgTemp)}${tUnit}`}                  color="text-red-300"  />
+        <SummaryChip label="Total Precip" value={`${totalPrecip.toFixed(1)} mm`}                color="text-sky-300"  />
       </div>
 
       {/* Toggle */}
@@ -164,34 +162,29 @@ export default function HourlyForecast() {
         ))}
       </div>
 
-      {/* Temperature chart */}
-      {activeChart === "temperature" && (
+      {/* Wind chart */}
+      {activeChart === "wind" && (
         <div className="h-48">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
               <defs>
-                <linearGradient id="tempGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#38bdf8" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#38bdf8" stopOpacity={0}   />
-                </linearGradient>
-                <linearGradient id="feelsGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#a78bfa" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#a78bfa" stopOpacity={0}   />
+                <linearGradient id="windGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor="#2dd4bf" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#2dd4bf" stopOpacity={0}   />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
               <XAxis dataKey="time" tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} axisLine={false} interval={2} />
-              <YAxis tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}${tUnit}`} />
-              <Tooltip content={<TempTooltip tUnit={tUnit} />} />
+              <YAxis tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} axisLine={false} />
+              <Tooltip content={<WindTooltip wUnit={wUnit} />} />
               <ReferenceLine
-                y={dayAvgTemp}
+                y={fmtWind(avgWind)}
                 stroke="#f87171"
                 strokeDasharray="4 4"
                 strokeWidth={1.5}
-                label={{ value: `avg ${dayAvgTemp}${tUnit}`, fill: "#f87171", fontSize: 10, position: "insideTopRight" }}
+                label={{ value: `avg ${fmtWind(avgWind)} ${wUnit}`, fill: "#f87171", fontSize: 10, position: "insideTopRight" }}
               />
-              <Area type="monotone" dataKey="Feels Like" stroke="#a78bfa" strokeWidth={1.5} fill="url(#feelsGrad)" dot={false} connectNulls />
-              <Area type="monotone" dataKey="Temp"       stroke="#38bdf8" strokeWidth={2}   fill="url(#tempGrad)"  dot={false} />
+              <Area type="monotone" dataKey="Wind" stroke="#2dd4bf" strokeWidth={2} fill="url(#windGrad)" dot={false} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
