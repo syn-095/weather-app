@@ -174,8 +174,10 @@ def get_weather(lat, lon, location_name="", days=7):
     except Exception as exc:
         logger.warning("Marine failed: %s", exc)
 
+    climate_data = None
     try:
-        climate_data = climate.normalize(climate.fetch_climate_normals(lat, lon))
+        raw_climate = climate.fetch_climate_normals(lat, lon)
+        climate_data = climate.normalize(raw_climate)
         sources_used.append("open_meteo_climate")
     except Exception as exc:
         logger.warning("Climate failed: %s", exc)
