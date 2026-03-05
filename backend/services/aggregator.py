@@ -9,6 +9,10 @@ import services.yr_no as yr_no
 import services.open_meteo_air as air_quality
 import services.open_meteo_marine as marine
 import services.open_meteo_climate as climate
+import services.tomorrow_io as tomorrow_io
+import services.openweather as openweather
+import services.visual_crossing as visual_crossing
+import services.pirate_weather as pirate_weather
 
 logger = logging.getLogger(__name__)
 
@@ -48,19 +52,26 @@ def _merge_daily(sources):
             if len(hs) == 1:
                 merged_hourly.append(hs[0].to_dict())
             else:
-                # For feels_like, only average sources that actually have it
-                feels_vals = [h.feels_like_c for h in hs if h.feels_like_c is not None]
+                feels_vals   = [h.feels_like_c for h in hs if h.feels_like_c is not None]
+                precip_probs = [h.__dict__.get("precipitation_probability")
+                                for h in hs
+                                if h.__dict__.get("precipitation_probability") is not None]
+                uv_vals      = [h.__dict__.get("uv_index")
+                                for h in hs
+                                if h.__dict__.get("uv_index") is not None]
                 merged_hourly.append({
                     "time": hs[0].time,
                     "temperature_c": _avg(*[h.temperature_c for h in hs]),
                     "feels_like_c": _avg(*feels_vals) if feels_vals else None,
                     "humidity_pct": _avg(*[h.humidity_pct for h in hs]),
                     "precipitation_mm": _avg(*[h.precipitation_mm for h in hs]),
+                    "precipitation_probability": _avg(*precip_probs) if precip_probs else None,
                     "wind_speed_kmh": _avg(*[h.wind_speed_kmh for h in hs]),
                     "wind_direction_deg": hs[0].wind_direction_deg,
                     "weather_code": hs[0].weather_code,
                     "description": hs[0].description,
                     "icon": hs[0].icon,
+                    "uv_index": _avg(*uv_vals) if uv_vals else None,
                     "source": "aggregated",
                 })
 
@@ -92,9 +103,10 @@ def _merge_current(currents):
     if len(valid) == 1:
         return valid[0].to_dict()
 
-    # Prefer feels_like_c from sources that actually provide it
-    feels_vals = [c.feels_like_c for c in valid if c.feels_like_c is not None]
+    feels_vals    = [c.feels_like_c for c in valid if c.feels_like_c is not None]
     humidity_vals = [c.humidity_pct for c in valid if c.humidity_pct and c.humidity_pct > 0]
+    uv_vals       = [c.__dict__.get("uv_index") for c in valid
+                     if c.__dict__.get("uv_index") is not None]
 
     return {
         "time": valid[0].time,
@@ -107,8 +119,24 @@ def _merge_current(currents):
         "weather_code": valid[0].weather_code,
         "description": valid[0].description,
         "icon": valid[0].icon,
+        "uv_index": _avg(*uv_vals) if uv_vals else None,
         "source": "aggregated",
     }
+
+
+def _try_source(name, fn, all_daily, all_currents, sources_used, errors):
+    """Helper to call a source and handle failures gracefully."""
+    try:
+        daily, current = fn()
+        all_daily.append(daily)
+        all_currents.append(current)
+        sources_used.append(name)
+        logger.info("%s: %d days fetched", name, len(daily))
+    except EnvironmentError:
+        logger.info("%s: API key not configured – skipping", name)
+    except Exception as exc:
+        logger.warning("%s failed: %s", name, exc)
+        errors.append(f"{name}: {exc}")
 
 
 def get_weather(lat, lon, location_name="", days=7):
@@ -118,50 +146,26 @@ def get_weather(lat, lon, location_name="", days=7):
 
     all_daily, all_currents, sources_used, errors = [], [], [], []
 
-    try:
-        raw_om = open_meteo.fetch_forecast(lat, lon, days)
-        om_daily, om_current = open_meteo.normalize(raw_om)
-        all_daily.append(om_daily)
-        all_currents.append(om_current)
-        sources_used.append("open_meteo")
-    except Exception as exc:
-        logger.warning("Open-Meteo failed: %s", exc)
-        errors.append(f"open_meteo: {exc}")
-
-    try:
-        raw_wa = weatherapi_svc.fetch_forecast(lat, lon, days)
-        wa_daily, wa_current = weatherapi_svc.normalize(raw_wa)
-        all_daily.append(wa_daily)
-        all_currents.append(wa_current)
-        sources_used.append("weatherapi")
-    except EnvironmentError:
-        logger.info("WeatherAPI key not configured – skipping")
-    except Exception as exc:
-        logger.warning("WeatherAPI failed: %s", exc)
-        errors.append(f"weatherapi: {exc}")
-
-    try:
-        raw_yr = yr_no.fetch_forecast(lat, lon)
-        yr_daily, yr_current = yr_no.normalize(raw_yr)
-        all_daily.append(yr_daily)
-        all_currents.append(yr_current)
-        sources_used.append("yr_no")
-    except Exception as exc:
-        logger.warning("Yr.no failed: %s", exc)
-        errors.append(f"yr_no: {exc}")
+    _try_source("open_meteo",     lambda: open_meteo.normalize(open_meteo.fetch_forecast(lat, lon, days)),         all_daily, all_currents, sources_used, errors)
+    _try_source("yr_no",          lambda: yr_no.normalize(yr_no.fetch_forecast(lat, lon)),                         all_daily, all_currents, sources_used, errors)
+    _try_source("weatherapi",     lambda: weatherapi_svc.normalize(weatherapi_svc.fetch_forecast(lat, lon, days)), all_daily, all_currents, sources_used, errors)
+    _try_source("tomorrow_io",    lambda: tomorrow_io.normalize(tomorrow_io.fetch_forecast(lat, lon, days)),        all_daily, all_currents, sources_used, errors)
+    _try_source("openweather",    lambda: openweather.normalize(openweather.fetch_forecast(lat, lon)),              all_daily, all_currents, sources_used, errors)
+    _try_source("visual_crossing",lambda: visual_crossing.normalize(visual_crossing.fetch_forecast(lat, lon, days)),all_daily, all_currents, sources_used, errors)
+    _try_source("pirate_weather", lambda: pirate_weather.normalize(pirate_weather.fetch_forecast(lat, lon)),        all_daily, all_currents, sources_used, errors)
 
     if not all_daily:
         raise RuntimeError(f"All weather sources failed: {'; '.join(errors)}")
 
-    air_data = None
+    # Supplemental sources
+    air_data, marine_data, climate_data = None, None, None
+
     try:
-        raw_air = air_quality.fetch_air_quality(lat, lon)
-        air_data = air_quality.normalize(raw_air)
+        air_data = air_quality.normalize(air_quality.fetch_air_quality(lat, lon))
         sources_used.append("open_meteo_air")
     except Exception as exc:
         logger.warning("Air quality failed: %s", exc)
 
-    marine_data = None
     try:
         raw_marine = marine.fetch_marine(lat, lon, days)
         if marine.is_available(raw_marine):
@@ -170,10 +174,8 @@ def get_weather(lat, lon, location_name="", days=7):
     except Exception as exc:
         logger.warning("Marine failed: %s", exc)
 
-    climate_data = None
     try:
-        raw_climate = climate.fetch_climate_normals(lat, lon)
-        climate_data = climate.normalize(raw_climate)
+        climate_data = climate.normalize(climate.fetch_climate_normals(lat, lon))
         sources_used.append("open_meteo_climate")
     except Exception as exc:
         logger.warning("Climate failed: %s", exc)

@@ -1,6 +1,6 @@
-Add feels like temp
-on 7-day forecast, add a red line for each range to show average
-specifiy what forecasts say what, then have the average ranges. you can decide which ones are being displayed
+Big things:
+- Add more APIs
+- Add feedback
 
-
-make the 7-day forecast easily scrollable
+Small things:
+- make the 7-day forecast easily scrollable
