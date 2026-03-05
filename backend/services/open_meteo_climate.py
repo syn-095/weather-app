@@ -1,18 +1,52 @@
 """
-services/open_meteo_climate.py
-Uses the Historical Weather API (ERA5) to compute monthly normals.
-Much faster than the Climate API — returns in ~2 seconds.
-Uses last 10 years of data for meaningful averages.
+Uses ERA5 archive API for monthly climate normals.
+Caches results to disk so we never hit rate limits.
 """
 
+import os
+import json
+import time
 import requests
 from datetime import datetime
 
-# Historical weather API — fast ERA5 reanalysis data
 BASE_URL = "https://archive-api.open-meteo.com/v1/archive"
+CACHE_DIR = "/tmp/climate_cache"
+
+
+def _cache_path(lat, lon):
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    return f"{CACHE_DIR}/{round(lat, 2)}_{round(lon, 2)}.json"
+
+
+def _load_cache(lat, lon):
+    path = _cache_path(lat, lon)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        # Cache valid for 7 days
+        if time.time() - data.get("cached_at", 0) < 604800:
+            return data.get("normals")
+    except Exception:
+        pass
+    return None
+
+
+def _save_cache(lat, lon, normals):
+    try:
+        with open(_cache_path(lat, lon), "w") as f:
+            json.dump({"cached_at": time.time(), "normals": normals}, f)
+    except Exception:
+        pass
 
 
 def fetch_climate_normals(lat: float, lon: float) -> dict:
+    # Return cached version if available — avoids rate limits
+    cached = _load_cache(lat, lon)
+    if cached:
+        return {"_from_cache": True, "monthly_normals": cached}
+
     params = {
         "latitude": lat,
         "longitude": lon,
@@ -33,6 +67,10 @@ def fetch_climate_normals(lat: float, lon: float) -> dict:
 
 
 def normalize(raw: dict) -> dict:
+    # Already normalized (came from cache)
+    if raw.get("_from_cache"):
+        return {"monthly_normals": raw["monthly_normals"]}
+
     daily = raw.get("daily", {})
     times = daily.get("time", [])
 
@@ -40,7 +78,6 @@ def normalize(raw: dict) -> dict:
         arr = daily.get(key, [])
         return arr[i] if i < len(arr) and arr[i] is not None else None
 
-    # Group all days by month number across all years
     by_month = {}
     for i, date_str in enumerate(times):
         month = int(date_str[5:7])
@@ -72,4 +109,6 @@ def normalize(raw: dict) -> dict:
             "wind_speed_kmh":   avg(days, "wind"),
         })
 
+    # Save to disk cache before returning
+    _save_cache(lat, lon, monthly)
     return {"monthly_normals": monthly}
