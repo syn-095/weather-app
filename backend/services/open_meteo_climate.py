@@ -1,17 +1,23 @@
+"""
+services/open_meteo_climate.py
+Uses the Historical Weather API (ERA5) to compute monthly normals.
+Much faster than the Climate API — returns in ~2 seconds.
+Uses last 10 years of data for meaningful averages.
+"""
+
 import requests
 from datetime import datetime
 
-BASE_URL = "https://climate-api.open-meteo.com/v1/climate"
+# Historical weather API — fast ERA5 reanalysis data
+BASE_URL = "https://archive-api.open-meteo.com/v1/archive"
+
 
 def fetch_climate_normals(lat: float, lon: float) -> dict:
-    # Fetch a single representative year — fast enough for Render free tier
-    # EC_Earth3P_HR provides data up to 2019
     params = {
         "latitude": lat,
         "longitude": lon,
-        "start_date": "2019-01-01",
-        "end_date": "2019-12-31",
-        "models": "EC_Earth3P_HR",
+        "start_date": "2015-01-01",
+        "end_date": "2024-12-31",
         "daily": [
             "temperature_2m_mean",
             "temperature_2m_max",
@@ -21,9 +27,10 @@ def fetch_climate_normals(lat: float, lon: float) -> dict:
         ],
         "timezone": "auto",
     }
-    resp = requests.get(BASE_URL, params=params, timeout=25)
+    resp = requests.get(BASE_URL, params=params, timeout=20)
     resp.raise_for_status()
     return resp.json()
+
 
 def normalize(raw: dict) -> dict:
     daily = raw.get("daily", {})
@@ -33,6 +40,7 @@ def normalize(raw: dict) -> dict:
         arr = daily.get(key, [])
         return arr[i] if i < len(arr) and arr[i] is not None else None
 
+    # Group all days by month number across all years
     by_month = {}
     for i, date_str in enumerate(times):
         month = int(date_str[5:7])
