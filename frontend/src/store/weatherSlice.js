@@ -30,6 +30,8 @@ const weatherSlice = createSlice({
     aggregatedDaily: [],
     sources: [],
     location: "",
+    latitude: null,
+    longitude: null,
     fetchedAt: null,
     airQuality: null,
     marine: null,
@@ -71,6 +73,8 @@ const weatherSlice = createSlice({
         state.aggregatedDaily = action.payload.aggregated_daily;
         state.sources = action.payload.sources;
         state.location = action.payload.location;
+        state.latitude = action.payload.latitude;
+        state.longitude = action.payload.longitude;
         state.fetchedAt = action.payload.fetched_at;
         state.airQuality = action.payload.air_quality ?? null;
         state.marine = action.payload.marine ?? null;

@@ -14,6 +14,33 @@ import { ErrorState } from "./components/LoadingState";
 import { useWeather } from "./hooks/useWeather";
 
 const DEFAULT = { lat: 51.5074, lon: -0.1278, name: "London, GB" };
+const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+const LOCATION_KEY = "weatheragg_last_location";
+
+function getInitialLocation() {
+  try {
+    const saved = localStorage.getItem(LOCATION_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed.lat && parsed.lon && parsed.name) return parsed;
+    }
+  } catch {}
+  return DEFAULT;
+}
+
+function saveLocation(lat, lon, name) {
+  try {
+    localStorage.setItem(LOCATION_KEY, JSON.stringify({ lat, lon, name }));
+  } catch {}
+}
+
+function pingAnalytics(locationName) {
+  fetch(`${API_BASE}/analytics/pageview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ location: locationName }),
+  }).catch(() => {});
+}
 
 function formatDayTitle(selectedDay) {
   if (!selectedDay) return "Hourly Breakdown";
@@ -27,13 +54,26 @@ function formatDayTitle(selectedDay) {
 
 function WeatherDashboard() {
   const { forecastStatus, forecastError, aggregatedDaily, selectedDay, load } = useWeather();
-  const marine         = useSelector((s) => s.weather.marine);
-  const airQuality     = useSelector((s) => s.weather.airQuality);
-  const climateNormals = useSelector((s) => s.weather.climateNormals);
+  const marine          = useSelector((s) => s.weather.marine);
+  const airQuality      = useSelector((s) => s.weather.airQuality);
+  const climateNormals  = useSelector((s) => s.weather.climateNormals);
+  const currentLocation = useSelector((s) => s.weather.location);
+  const latitude        = useSelector((s) => s.weather.latitude);
+  const longitude       = useSelector((s) => s.weather.longitude);
 
+  // On mount: load last known location (or default), then ping analytics
   useEffect(() => {
-    load(DEFAULT.lat, DEFAULT.lon, DEFAULT.name, 7);
+    const initial = getInitialLocation();
+    load(initial.lat, initial.lon, initial.name, 7);
+    pingAnalytics(initial.name);
   }, []);
+
+  // Save location to localStorage whenever it changes after a search
+  useEffect(() => {
+    if (currentLocation && latitude && longitude) {
+      saveLocation(latitude, longitude, currentLocation);
+    }
+  }, [currentLocation, latitude, longitude]);
 
   const isLoading = forecastStatus === "loading";
   const hasData   = aggregatedDaily.length > 0;
@@ -43,7 +83,10 @@ function WeatherDashboard() {
       {forecastStatus === "failed" && (
         <ErrorState
           message={forecastError || "Failed to load weather data"}
-          onRetry={() => load(DEFAULT.lat, DEFAULT.lon, DEFAULT.name, 7)}
+          onRetry={() => {
+            const loc = getInitialLocation();
+            load(loc.lat, loc.lon, loc.name, 7);
+          }}
         />
       )}
 
