@@ -19,6 +19,34 @@ function formatHour(timeStr) {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true });
 }
 
+// Returns a 0-1 fraction of how far through the day we currently are,
+// based on the hourly data for the selected day. Returns null if today
+// is not the selected day (no fading needed for future/past days).
+function getNowFraction(hourlyForDay) {
+  if (!hourlyForDay.length) return null;
+  const now      = new Date();
+  const dayStart = new Date(hourlyForDay[0].time);
+  const dayEnd   = new Date(hourlyForDay[hourlyForDay.length - 1].time);
+  if (now < dayStart || now > dayEnd) return null;
+  return (now - dayStart) / (dayEnd - dayStart);
+}
+
+function getCurrentHourLabel(hourlyForDay) {
+  const now = new Date();
+  let closest = null;
+  let closestDiff = Infinity;
+  for (const h of hourlyForDay) {
+    const t = new Date(h.time);
+    const diff = Math.abs(t - now);
+    if (diff < closestDiff) { closestDiff = diff; closest = h; }
+  }
+  if (!closest) return null;
+  const dayStart = new Date(hourlyForDay[0].time);
+  const dayEnd   = new Date(hourlyForDay[hourlyForDay.length - 1].time);
+  if (now < dayStart || now > dayEnd) return null;
+  return formatHour(closest.time);
+}
+
 function TempTooltip({ active, payload, label, tUnit }) {
   if (!active || !payload?.length) return null;
   return (
@@ -61,6 +89,68 @@ function WindTooltip({ active, payload, label, wUnit }) {
   );
 }
 
+function NowLabel({ viewBox }) {
+  if (!viewBox) return null;
+  return (
+    <text x={viewBox.x + 4} y={viewBox.y + 12} fill="#fbbf24" fontSize={10} fontWeight="600">
+      now
+    </text>
+  );
+}
+
+// Renders the SVG gradient defs for a given chart colour.
+// nowFraction = 0-1 where "now" falls horizontally across the chart.
+// Past = dimmed (low opacity line + fill), future = bright.
+function TimeGradients({ nowFraction, lineColor, lineId, fillId }) {
+  // If no nowFraction (not today), just use standard gradients
+  if (nowFraction === null) {
+    const pct = (nowFraction ?? 0) * 100;
+    return (
+      <defs>
+        <linearGradient id={lineId} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%"   stopColor={lineColor} stopOpacity={1} />
+          <stop offset="100%" stopColor={lineColor} stopOpacity={1} />
+        </linearGradient>
+        <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="5%"  stopColor={lineColor} stopOpacity={0.3} />
+          <stop offset="95%" stopColor={lineColor} stopOpacity={0}   />
+        </linearGradient>
+      </defs>
+    );
+  }
+
+  const pct = Math.round(nowFraction * 100);
+
+  return (
+    <defs>
+      {/* Horizontal gradient for the line stroke: dim past, bright future */}
+      <linearGradient id={lineId} x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%"        stopColor={lineColor} stopOpacity={0.25} />
+        <stop offset={`${pct}%`} stopColor={lineColor} stopOpacity={0.25} />
+        <stop offset={`${pct}%`} stopColor={lineColor} stopOpacity={1}    />
+        <stop offset="100%"      stopColor={lineColor} stopOpacity={1}    />
+      </linearGradient>
+      {/* Vertical gradient for fill area — past side dimmed */}
+      <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+        <stop offset="5%"  stopColor={lineColor} stopOpacity={0.15} />
+        <stop offset="95%" stopColor={lineColor} stopOpacity={0}    />
+      </linearGradient>
+      {/* Separate fill for past (more transparent) */}
+      <linearGradient id={`${fillId}_past`} x1="0" y1="0" x2="0" y2="1">
+        <stop offset="5%"  stopColor={lineColor} stopOpacity={0.05} />
+        <stop offset="95%" stopColor={lineColor} stopOpacity={0}    />
+      </linearGradient>
+      {/* Combined horizontal fill gradient */}
+      <linearGradient id={`${fillId}_h`} x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%"        stopColor={lineColor} stopOpacity={0.06} />
+        <stop offset={`${pct}%`} stopColor={lineColor} stopOpacity={0.06} />
+        <stop offset={`${pct}%`} stopColor={lineColor} stopOpacity={0.28} />
+        <stop offset="100%"      stopColor={lineColor} stopOpacity={0.28} />
+      </linearGradient>
+    </defs>
+  );
+}
+
 const CHART_TYPES = [
   { key: "temperature",   label: "Temp",   icon: "🌡" },
   { key: "precipitation", label: "Precip", icon: "🌧" },
@@ -95,7 +185,6 @@ export default function HourlyForecast() {
     );
   }
 
-  // Build chart data
   const chartData = hourlyForDay.map((h) => ({
     time:         formatHour(h.time),
     Temp:         fmt(h.temperature_c),
@@ -105,7 +194,9 @@ export default function HourlyForecast() {
     Wind:         fmtWind(h.wind_speed_kmh),
   }));
 
-  // Summary stats
+  const nowFraction = getNowFraction(hourlyForDay);
+  const nowLabel    = getCurrentHourLabel(hourlyForDay);
+
   const validHumidity = hourlyForDay.filter((h) => h.humidity_pct > 0);
   const avgHumidity = validHumidity.length
     ? Math.round(validHumidity.reduce((s, h) => s + h.humidity_pct, 0) / validHumidity.length)
@@ -115,22 +206,18 @@ export default function HourlyForecast() {
   );
   const totalPrecip = hourlyForDay.reduce((s, h) => s + (h.precipitation_mm || 0), 0);
 
-  // Day average temp for reference line
-  const dayAvgTemp = fmt(
-    hourlyForDay.reduce((s, h) => s + h.temperature_c, 0) / hourlyForDay.length
-  );
+  const temps = hourlyForDay.map((h) => h.temperature_c);
+  const dayAvgTemp = fmt((Math.max(...temps) + Math.min(...temps)) / 2);
 
   return (
     <div className="space-y-4">
 
-      {/* Summary chips */}
       <div className="grid grid-cols-3 gap-2">
         <SummaryChip label="Avg Humidity" value={avgHumidity != null ? `${avgHumidity}%` : "—"} color="text-blue-300" />
         <SummaryChip label="Avg Temp"     value={`${dayAvgTemp}${tUnit}`}                       color="text-red-300"  />
         <SummaryChip label="Total Precip" value={`${totalPrecip.toFixed(1)} mm`}                color="text-sky-300"  />
       </div>
 
-      {/* Chart type toggle */}
       <div className="flex gap-1 p-1 bg-white/5 rounded-2xl border border-white/10">
         {CHART_TYPES.map((ct) => (
           <button
@@ -149,21 +236,23 @@ export default function HourlyForecast() {
         ))}
       </div>
 
-      {/* ── Temperature chart ── */}
+      {/* ── Temperature ── */}
       {activeChart === "temperature" && (
         <div className="h-48">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
-              <defs>
-                <linearGradient id="tempGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#38bdf8" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#38bdf8" stopOpacity={0}   />
-                </linearGradient>
-                <linearGradient id="feelsGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#a78bfa" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#a78bfa" stopOpacity={0}   />
-                </linearGradient>
-              </defs>
+              <TimeGradients
+                nowFraction={nowFraction}
+                lineColor="#38bdf8"
+                lineId="tempLine"
+                fillId="tempFill"
+              />
+              <TimeGradients
+                nowFraction={nowFraction}
+                lineColor="#a78bfa"
+                lineId="feelsLine"
+                fillId="feelsFill"
+              />
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
               <XAxis dataKey="time" tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} axisLine={false} interval={2} />
               <YAxis tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}${tUnit}`} />
@@ -175,14 +264,38 @@ export default function HourlyForecast() {
                 strokeWidth={1.5}
                 label={{ value: `avg ${dayAvgTemp}${tUnit}`, fill: "#f87171", fontSize: 10, position: "insideTopRight" }}
               />
-              <Area type="monotone" dataKey="Feels Like" stroke="#a78bfa" strokeWidth={1.5} fill="url(#feelsGrad)" dot={false} connectNulls />
-              <Area type="monotone" dataKey="Temp"       stroke="#38bdf8" strokeWidth={2}   fill="url(#tempGrad)"  dot={false} />
+              {nowLabel && (
+                <ReferenceLine
+                  x={nowLabel}
+                  stroke="#fbbf24"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 3"
+                  label={<NowLabel />}
+                />
+              )}
+              <Area
+                type="monotone"
+                dataKey="Feels Like"
+                stroke="url(#feelsLine)"
+                strokeWidth={1.5}
+                fill="url(#feelsFill_h)"
+                dot={false}
+                connectNulls
+              />
+              <Area
+                type="monotone"
+                dataKey="Temp"
+                stroke="url(#tempLine)"
+                strokeWidth={2}
+                fill="url(#tempFill_h)"
+                dot={false}
+              />
             </AreaChart>
           </ResponsiveContainer>
         </div>
       )}
 
-      {/* ── Precipitation chart ── */}
+      {/* ── Precipitation ── */}
       {activeChart === "precipitation" && (
         <div className="h-48">
           <ResponsiveContainer width="100%" height="100%">
@@ -192,6 +305,16 @@ export default function HourlyForecast() {
               <YAxis yAxisId="mm"  tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}mm`} />
               <YAxis yAxisId="pct" orientation="right" tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} domain={[0, 100]} />
               <Tooltip content={<PrecipTooltip />} />
+              {nowLabel && (
+                <ReferenceLine
+                  yAxisId="mm"
+                  x={nowLabel}
+                  stroke="#fbbf24"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 3"
+                  label={<NowLabel />}
+                />
+              )}
               <Bar  yAxisId="mm"  dataKey="Precip"      fill="#38bdf8" fillOpacity={0.7} radius={[3,3,0,0]} />
               <Area yAxisId="pct" type="monotone" dataKey="Probability" stroke="#818cf8" strokeWidth={2} fill="none" dot={false} connectNulls />
             </BarChart>
@@ -199,20 +322,20 @@ export default function HourlyForecast() {
         </div>
       )}
 
-      {/* ── Wind chart ── */}
+      {/* ── Wind ── */}
       {activeChart === "wind" && (
         <div className="h-48">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
-              <defs>
-                <linearGradient id="windGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#2dd4bf" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#2dd4bf" stopOpacity={0}   />
-                </linearGradient>
-              </defs>
+              <TimeGradients
+                nowFraction={nowFraction}
+                lineColor="#2dd4bf"
+                lineId="windLine"
+                fillId="windFill"
+              />
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
               <XAxis dataKey="time" tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} axisLine={false} interval={2} />
-              <YAxis tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}`} />
+              <YAxis tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} axisLine={false} />
               <Tooltip content={<WindTooltip wUnit={wUnit} />} />
               <ReferenceLine
                 y={fmtWind(avgWind)}
@@ -221,34 +344,70 @@ export default function HourlyForecast() {
                 strokeWidth={1.5}
                 label={{ value: `avg ${fmtWind(avgWind)} ${wUnit}`, fill: "#f87171", fontSize: 10, position: "insideTopRight" }}
               />
-              <Area type="monotone" dataKey="Wind" stroke="#2dd4bf" strokeWidth={2} fill="url(#windGrad)" dot={false} />
+              {nowLabel && (
+                <ReferenceLine
+                  x={nowLabel}
+                  stroke="#fbbf24"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 3"
+                  label={<NowLabel />}
+                />
+              )}
+              <Area
+                type="monotone"
+                dataKey="Wind"
+                stroke="url(#windLine)"
+                strokeWidth={2}
+                fill="url(#windFill_h)"
+                dot={false}
+              />
             </AreaChart>
           </ResponsiveContainer>
         </div>
       )}
 
-      {/* ── Cards view ── */}
+      {/* ── Cards ── */}
       {activeChart === "cards" && (
         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-          {hourlyForDay.map((h, i) => (
-            <div
-              key={i}
-              className="flex-shrink-0 w-20 rounded-2xl p-3 bg-white/5 border border-white/10
-                         flex flex-col items-center gap-2 text-center hover:bg-white/10 transition-colors"
-            >
-              <span className="text-xs text-slate-400 font-medium leading-none">{formatHour(h.time)}</span>
-              <div className="text-slate-300 w-6 h-6">
-                <WeatherIcon icon={h.icon} className="w-6 h-6" />
+          {hourlyForDay.map((h, i) => {
+            const hTime  = new Date(h.time);
+            const now    = new Date();
+            const isNow  = nowLabel === formatHour(h.time);
+            const isPast = nowFraction !== null && hTime < now;
+            return (
+              <div
+                key={i}
+                className={`flex-shrink-0 w-20 rounded-2xl p-3 border
+                           flex flex-col items-center gap-2 text-center transition-colors
+                           ${isNow
+                             ? "bg-amber-500/10 border-amber-500/30"
+                             : isPast
+                             ? "bg-white/[0.02] border-white/5 opacity-50"
+                             : "bg-white/5 border-white/10 hover:bg-white/10"
+                           }`}
+              >
+                {isNow && (
+                  <span className="text-amber-400 text-xs font-bold leading-none">NOW</span>
+                )}
+                <span className={`text-xs font-medium leading-none
+                  ${isNow ? "text-amber-300" : isPast ? "text-slate-600" : "text-slate-400"}`}>
+                  {formatHour(h.time)}
+                </span>
+                <div className={`w-6 h-6 ${isPast && !isNow ? "opacity-40" : "text-slate-300"}`}>
+                  <WeatherIcon icon={h.icon} className="w-6 h-6" />
+                </div>
+                <span className={`text-sm font-bold ${isPast && !isNow ? "text-slate-500" : "text-white"}`}>
+                  {fmt(h.temperature_c)}{tUnit}
+                </span>
+                {h.precipitation_mm > 0.05 && (
+                  <span className="text-sky-400 text-xs">{h.precipitation_mm.toFixed(1)}mm</span>
+                )}
+                <span className="text-slate-500 text-xs">
+                  {fmtWind(h.wind_speed_kmh)}{wUnit.replace("km/", "")}
+                </span>
               </div>
-              <span className="text-white text-sm font-bold">{fmt(h.temperature_c)}{tUnit}</span>
-              {h.precipitation_mm > 0.05 && (
-                <span className="text-sky-400 text-xs">{h.precipitation_mm.toFixed(1)}mm</span>
-              )}
-              <span className="text-slate-500 text-xs">
-                {fmtWind(h.wind_speed_kmh)}{wUnit.replace("km/", "")}
-              </span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
