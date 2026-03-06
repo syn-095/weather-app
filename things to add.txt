@@ -1,6 +1,6 @@
 Big things:
 - Add more APIs
-- Add feedback
+- Add feedback --> for the models and for general improvement
 
 Small things:
 - make the 7-day forecast easily scrollable

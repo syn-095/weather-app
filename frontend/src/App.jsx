@@ -9,6 +9,7 @@ import HourlyForecast from "./components/HourlyForecast";
 import AirQualityCard from "./components/AirQualityCard";
 import MarineCard from "./components/MarineCard";
 import ClimateCard from "./components/ClimateCard";
+import FeedbackButton from "./components/FeedbackButton";
 import { ErrorState } from "./components/LoadingState";
 import { useWeather } from "./hooks/useWeather";
 
@@ -16,8 +17,8 @@ const DEFAULT = { lat: 51.5074, lon: -0.1278, name: "London, GB" };
 
 function WeatherDashboard() {
   const { forecastStatus, forecastError, aggregatedDaily, selectedDay, load } = useWeather();
-  const marine = useSelector((s) => s.weather.marine);
-  const airQuality = useSelector((s) => s.weather.airQuality);
+  const marine       = useSelector((s) => s.weather.marine);
+  const airQuality   = useSelector((s) => s.weather.airQuality);
   const climateNormals = useSelector((s) => s.weather.climateNormals);
 
   useEffect(() => {
@@ -25,7 +26,7 @@ function WeatherDashboard() {
   }, []);
 
   const isLoading = forecastStatus === "loading";
-  const hasData = aggregatedDaily.length > 0;
+  const hasData   = aggregatedDaily.length > 0;
 
   return (
     <div className="space-y-6">
@@ -36,10 +37,8 @@ function WeatherDashboard() {
         />
       )}
 
-      {/* Hero */}
       <CurrentWeather />
 
-      {/* Daily + Hourly */}
       {(isLoading || hasData) && (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           <section className="rounded-3xl p-5 bg-white/5 border border-white/10 backdrop-blur-sm">
@@ -62,11 +61,10 @@ function WeatherDashboard() {
         </div>
       )}
 
-      {/* Supplemental data row */}
       {hasData && (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-          {airQuality && <AirQualityCard />}
-          {marine && <MarineCard />}
+          {airQuality   && <AirQualityCard />}
+          {marine       && <MarineCard />}
           {climateNormals && <ClimateCard />}
         </div>
       )}
@@ -87,7 +85,15 @@ export default function App() {
     <Provider store={store}>
       <AppLayout>
         <WeatherDashboard />
+        <FeedbackButton />
       </AppLayout>
     </Provider>
   );
 }
+
+'''
+
+**To view feedback**, visit:
+https://weatherapp-backend-9c2l.onrender.com/api/feedback?secret=YOUR_SECRET
+
+'''
