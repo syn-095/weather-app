@@ -25,3 +25,13 @@ def debug_climate():
         })
     except Exception as e:
         return jsonify({"status": "error", "error": str(e), "type": type(e).__name__}), 500
+
+@health_bp.route("/debug/env")
+def debug_env():
+    import os
+    secret = os.getenv("FEEDBACK_ADMIN_SECRET", "NOT_FOUND")
+    return jsonify({
+        "secret_length": len(secret),
+        "secret_first_char": secret[0] if secret else "NOT_FOUND",
+        "secret_is_42": secret == "42",
+    })
