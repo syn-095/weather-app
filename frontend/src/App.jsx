@@ -15,10 +15,20 @@ import { useWeather } from "./hooks/useWeather";
 
 const DEFAULT = { lat: 51.5074, lon: -0.1278, name: "London, GB" };
 
+function formatDayTitle(selectedDay) {
+  if (!selectedDay) return "Hourly Breakdown";
+  const label = new Date(selectedDay.date + "T12:00:00").toLocaleDateString([], {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  });
+  return "Hourly \u2014 " + label;
+}
+
 function WeatherDashboard() {
   const { forecastStatus, forecastError, aggregatedDaily, selectedDay, load } = useWeather();
-  const marine       = useSelector((s) => s.weather.marine);
-  const airQuality   = useSelector((s) => s.weather.airQuality);
+  const marine         = useSelector((s) => s.weather.marine);
+  const airQuality     = useSelector((s) => s.weather.airQuality);
   const climateNormals = useSelector((s) => s.weather.climateNormals);
 
   useEffect(() => {
@@ -50,11 +60,7 @@ function WeatherDashboard() {
 
           <section className="rounded-3xl p-5 bg-white/5 border border-white/10 backdrop-blur-sm">
             <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">
-              {selectedDay
-                ? `Hourly — ${new Date(selectedDay.date + "T12:00:00").toLocaleDateString([], {
-                    weekday: "long", month: "short", day: "numeric",
-                  })}`
-                : "Hourly Breakdown"}
+              {formatDayTitle(selectedDay)}
             </h2>
             <HourlyForecast />
           </section>
@@ -63,8 +69,8 @@ function WeatherDashboard() {
 
       {hasData && (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-          {airQuality   && <AirQualityCard />}
-          {marine       && <MarineCard />}
+          {airQuality    && <AirQualityCard />}
+          {marine        && <MarineCard />}
           {climateNormals && <ClimateCard />}
         </div>
       )}
@@ -90,10 +96,3 @@ export default function App() {
     </Provider>
   );
 }
-
-'''
-
-**To view feedback**, visit:
-https://weatherapp-backend-9c2l.onrender.com/api/feedback?secret=YOUR_SECRET
-
-'''
