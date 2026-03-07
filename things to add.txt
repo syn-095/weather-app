@@ -1,6 +1,12 @@
+What makes this app unique???
+
 Big things:
-- Add more APIs
-- Add feedback --> for the models and for general improvement
+- Add more APIs --> for now we've got most of the free ones, but the idea is to get partnerships with companies such as met office, universities etc. I assume big companies like Apple will not be willing to partner up, but it's worth exploring nonetheless
+- Add feedback --> each model should have a distinct set of weights, to see how good they are at every kind of prediction. Eventually, my plan is to implement AI to decide how to edit wieghts as we get more information about predictions vs reality/readings.
+- Make this an all-inclusive weather app - possible partnership with windy to get wind map
+- Add notifications --> if someone is going out hiking one day, they can set alerts for if the weather suddenly changes
 
 Small things:
 - make the 7-day forecast easily scrollable
+- name of website: WillWeather? something more catchy needed...
+- get logo for app.
