@@ -1,7 +1,9 @@
 from flask import Blueprint, request, jsonify
 import requests
+import logging
 from cachetools import TTLCache
 
+logger = logging.getLogger(__name__)
 elevation_bp = Blueprint("elevation", __name__)
 _cache = TTLCache(maxsize=512, ttl=86400)
 
@@ -10,19 +12,20 @@ def get_elevation(lat: float, lon: float) -> float | None:
     key = f"{round(lat, 3)}:{round(lon, 3)}"
     if key in _cache:
         return _cache[key]
-    
-    # Try Open-Meteo elevation (same domain as our weather calls — already works)
     try:
         resp = requests.get(
             "https://api.open-meteo.com/v1/elevation",
             params={"latitude": lat, "longitude": lon},
             timeout=5
         )
+        logger.info("Elevation API status: %s body: %s", resp.status_code, resp.text[:200])
         resp.raise_for_status()
-        elev = resp.json()["elevation"][0]
+        data = resp.json()
+        elev = data["elevation"][0]
         _cache[key] = elev
         return elev
-    except Exception:
+    except Exception as e:
+        logger.warning("Elevation fetch failed: %s", e)
         return None
 
 
@@ -53,10 +56,9 @@ def elevation():
     if lat is None or lon is None:
         return jsonify({"error": "lat and lon required"}), 400
 
-    elev = get_elevation(lat, lon)
+    elev       = get_elevation(lat, lon)
     prominence = get_prominence(lat, lon)
-
-    is_summit = (
+    is_summit  = (
         (elev is not None and elev > 600) or
         (prominence is not None and prominence > 300)
     )
