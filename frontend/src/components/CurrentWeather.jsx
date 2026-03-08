@@ -3,19 +3,19 @@ import { useWeather } from "../hooks/useWeather";
 import WeatherIcon from "./WeatherIcon";
 
 const SOURCE_META = {
-  open_meteo:       { label: "Open-Meteo",     color: "text-emerald-400", dot: "bg-emerald-400" },
-  yr_no:            { label: "Yr.no",           color: "text-orange-400",  dot: "bg-orange-400"  },
-  weatherapi:       { label: "WeatherAPI",      color: "text-violet-400",  dot: "bg-violet-400"  },
-  tomorrow_io:      { label: "Tomorrow.io",     color: "text-cyan-400",    dot: "bg-cyan-400"    },
-  openweather:      { label: "OpenWeather",     color: "text-yellow-400",  dot: "bg-yellow-400"  },
-  visual_crossing:  { label: "VisualCrossing",  color: "text-pink-400",    dot: "bg-pink-400"    },
-  pirate_weather:   { label: "Pirate Weather",  color: "text-red-400",     dot: "bg-red-400"     },
-  open_meteo_air:   { label: "Air Quality",     color: "text-teal-400",    dot: "bg-teal-400"    },
-  open_meteo_marine:{ label: "Marine",          color: "text-blue-400",    dot: "bg-blue-400"    },
-  open_meteo_climate:{ label: "Climate",        color: "text-indigo-400",  dot: "bg-indigo-400"  },
+  open_meteo:        { label: "Open-Meteo",     color: "text-emerald-400", dot: "bg-emerald-400" },
+  yr_no:             { label: "Yr.no",           color: "text-orange-400",  dot: "bg-orange-400"  },
+  weatherapi:        { label: "WeatherAPI",      color: "text-violet-400",  dot: "bg-violet-400"  },
+  tomorrow_io:       { label: "Tomorrow.io",     color: "text-cyan-400",    dot: "bg-cyan-400"    },
+  openweather:       { label: "OpenWeather",     color: "text-yellow-400",  dot: "bg-yellow-400"  },
+  visual_crossing:   { label: "VisualCrossing",  color: "text-pink-400",    dot: "bg-pink-400"    },
+  pirate_weather:    { label: "Pirate Weather",  color: "text-red-400",     dot: "bg-red-400"     },
+  open_meteo_air:    { label: "Air Quality",     color: "text-teal-400",    dot: "bg-teal-400"    },
+  open_meteo_marine: { label: "Marine",          color: "text-blue-400",    dot: "bg-blue-400"    },
+  open_meteo_climate:{ label: "Climate",         color: "text-indigo-400",  dot: "bg-indigo-400"  },
 };
 
-export default function CurrentWeather() {
+export default function CurrentWeather({ summitMode = false }) {
   const {
     current, location, sources, fetchedAt,
     fmt, fmtWind, tUnit, wUnit, forecastStatus
@@ -36,7 +36,6 @@ export default function CurrentWeather() {
     ? new Date(fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : null;
 
-  // Separate forecast sources from supplemental sources
   const forecastSources = sources.filter(s =>
     !s.includes("air") && !s.includes("marine") && !s.includes("climate")
   );
@@ -85,24 +84,37 @@ export default function CurrentWeather() {
           )}
         </div>
 
-        {/* Right: stats */}
+        {/* Right: stats — summit mode adds cloud base and freeze level */}
         <div className="grid grid-cols-2 gap-3 min-w-[200px]">
           <Stat icon="💧" label="Humidity"  value={`${Math.round(current.humidity_pct)}%`} />
           <Stat icon="💨" label="Wind"      value={`${fmtWind(current.wind_speed_kmh)} ${wUnit}`} />
           <Stat icon="🌧" label="Precip"    value={`${current.precipitation_mm} mm`} />
-          {current.wind_direction_deg != null && (
-            <Stat icon="🧭" label="Direction" value={`${current.wind_direction_deg}°`} />
+          {summitMode && current.temperature_c != null && (
+            <Stat
+              icon="🧊"
+              label="Freeze lvl"
+              value={`${Math.round(
+                (current.elevation_m || 0) +
+                (current.temperature_c / 6.5) * 1000
+              )}m`}
+            />
           )}
-          {current.uv_index != null && (
+          {summitMode && (
+            <Stat icon="☁️" label="Cloud base" value={
+              current.cloud_base_m ? `${current.cloud_base_m}m` : "—"
+            } />
+          )}
+          {current.uv_index != null && !summitMode && (
             <Stat icon="☀️" label="UV Index" value={`${current.uv_index?.toFixed(1)}`} />
+          )}
+          {current.wind_direction_deg != null && !summitMode && (
+            <Stat icon="🧭" label="Direction" value={`${current.wind_direction_deg}°`} />
           )}
         </div>
       </div>
 
       {/* Sources section */}
       <div className="relative z-10 mt-5 pt-4 border-t border-white/10 space-y-3">
-
-        {/* Forecast sources — shown as coloured pills */}
         <div>
           <p className="text-xs text-slate-500 uppercase tracking-wider mb-2">
             Forecast sources ({forecastSources.length})
@@ -114,11 +126,8 @@ export default function CurrentWeather() {
             {forecastSources.map((src) => {
               const meta = SOURCE_META[src] || { label: src, color: "text-slate-300", dot: "bg-slate-400" };
               return (
-                <span
-                  key={src}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full
-                             bg-white/5 border border-white/10 text-xs font-medium"
-                >
+                <span key={src} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                                           bg-white/5 border border-white/10 text-xs font-medium">
                   <span className={`w-1.5 h-1.5 rounded-full ${meta.dot} flex-shrink-0`} />
                   <span className={meta.color}>{meta.label}</span>
                 </span>
@@ -127,7 +136,6 @@ export default function CurrentWeather() {
           </div>
         </div>
 
-        {/* Supplemental sources */}
         {supplementalSources.length > 0 && (
           <div>
             <p className="text-xs text-slate-500 uppercase tracking-wider mb-2">
@@ -137,11 +145,8 @@ export default function CurrentWeather() {
               {supplementalSources.map((src) => {
                 const meta = SOURCE_META[src] || { label: src, color: "text-slate-300", dot: "bg-slate-400" };
                 return (
-                  <span
-                    key={src}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full
-                               bg-white/5 border border-white/10 text-xs font-medium"
-                  >
+                  <span key={src} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                                             bg-white/5 border border-white/10 text-xs font-medium">
                     <span className={`w-1.5 h-1.5 rounded-full ${meta.dot} flex-shrink-0`} />
                     <span className={meta.color}>{meta.label}</span>
                   </span>
@@ -151,7 +156,6 @@ export default function CurrentWeather() {
           </div>
         )}
 
-        {/* Timestamp */}
         <div className="flex justify-end">
           {lastUpdated && (
             <span className="text-xs text-slate-600">Updated {lastUpdated}</span>
