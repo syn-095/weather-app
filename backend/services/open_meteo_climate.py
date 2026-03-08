@@ -1,15 +1,9 @@
-"""
-Uses ERA5 archive API for monthly climate normals.
-Caches results to disk so we never hit rate limits.
-"""
-
 import os
 import json
 import time
 import requests
-from datetime import datetime
 
-BASE_URL = "https://archive-api.open-meteo.com/v1/archive"
+BASE_URL  = "https://archive-api.open-meteo.com/v1/archive"
 CACHE_DIR = "/tmp/climate_cache"
 
 
@@ -25,7 +19,6 @@ def _load_cache(lat, lon):
     try:
         with open(path) as f:
             data = json.load(f)
-        # Cache valid for 7 days
         if time.time() - data.get("cached_at", 0) < 604800:
             return data.get("normals")
     except Exception:
@@ -42,16 +35,15 @@ def _save_cache(lat, lon, normals):
 
 
 def fetch_climate_normals(lat: float, lon: float) -> dict:
-    # Return cached version if available — avoids rate limits
     cached = _load_cache(lat, lon)
     if cached:
-        return {"_from_cache": True, "monthly_normals": cached}
+        return {"_from_cache": True, "monthly_normals": cached, "_lat": lat, "_lon": lon}
 
     params = {
-        "latitude": lat,
-        "longitude": lon,
+        "latitude":   lat,
+        "longitude":  lon,
         "start_date": "2015-01-01",
-        "end_date": "2024-12-31",
+        "end_date":   "2024-12-31",
         "daily": [
             "temperature_2m_mean",
             "temperature_2m_max",
@@ -63,11 +55,16 @@ def fetch_climate_normals(lat: float, lon: float) -> dict:
     }
     resp = requests.get(BASE_URL, params=params, timeout=20)
     resp.raise_for_status()
-    return resp.json()
+    data = resp.json()
+    data["_lat"] = lat
+    data["_lon"] = lon
+    return data
 
 
 def normalize(raw: dict) -> dict:
-    # Already normalized (came from cache)
+    lat = raw.get("_lat")
+    lon = raw.get("_lon")
+
     if raw.get("_from_cache"):
         return {"monthly_normals": raw["monthly_normals"]}
 
@@ -109,6 +106,5 @@ def normalize(raw: dict) -> dict:
             "wind_speed_kmh":   avg(days, "wind"),
         })
 
-    # Save to disk cache before returning
     _save_cache(lat, lon, monthly)
     return {"monthly_normals": monthly}

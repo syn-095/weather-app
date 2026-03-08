@@ -3,21 +3,23 @@ import requests
 from cachetools import TTLCache
 
 elevation_bp = Blueprint("elevation", __name__)
-_cache = TTLCache(maxsize=512, ttl=86400)  # 24hr — elevation doesn't change
+_cache = TTLCache(maxsize=512, ttl=86400)
 
 
 def get_elevation(lat: float, lon: float) -> float | None:
     key = f"{round(lat, 3)}:{round(lon, 3)}"
     if key in _cache:
         return _cache[key]
+    
+    # Try Open-Meteo elevation (same domain as our weather calls — already works)
     try:
         resp = requests.get(
-            "https://api.open-topo-data.com/v1/srtm30m",
-            params={"locations": f"{lat},{lon}"},
+            "https://api.open-meteo.com/v1/elevation",
+            params={"latitude": lat, "longitude": lon},
             timeout=5
         )
         resp.raise_for_status()
-        elev = resp.json()["results"][0]["elevation"]
+        elev = resp.json()["elevation"][0]
         _cache[key] = elev
         return elev
     except Exception:
@@ -25,11 +27,6 @@ def get_elevation(lat: float, lon: float) -> float | None:
 
 
 def get_prominence(lat: float, lon: float) -> float | None:
-    """
-    Estimate local prominence by comparing point elevation
-    to average of surrounding points at ~5km offset.
-    Rough but free and API-key-free.
-    """
     center = get_elevation(lat, lon)
     if center is None:
         return None
@@ -46,8 +43,7 @@ def get_prominence(lat: float, lon: float) -> float | None:
             surrounds.append(e)
     if not surrounds:
         return None
-    avg_surround = sum(surrounds) / len(surrounds)
-    return max(0.0, center - avg_surround)
+    return max(0.0, center - sum(surrounds) / len(surrounds))
 
 
 @elevation_bp.route("/elevation")
@@ -60,15 +56,13 @@ def elevation():
     elev = get_elevation(lat, lon)
     prominence = get_prominence(lat, lon)
 
-    # Summit view threshold: elevation > 600m OR prominence > 300m
-    # This catches low-but-serious Scottish hills and high Alpine peaks alike
     is_summit = (
         (elev is not None and elev > 600) or
         (prominence is not None and prominence > 300)
     )
 
     return jsonify({
-        "elevation_m":   elev,
-        "prominence_m":  prominence,
+        "elevation_m":         elev,
+        "prominence_m":        prominence,
         "suggest_summit_view": is_summit,
     })
