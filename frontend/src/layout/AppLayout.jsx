@@ -18,7 +18,7 @@ export default function AppLayout({ children }) {
           <div className="flex items-center gap-2.5 flex-shrink-0">
             <span className="text-2xl">🌤</span>
             <span className="font-black text-lg tracking-tight hidden sm:block">
-              Weather<span className="text-sky-400">Agg</span>
+              Cairn
             </span>
           </div>
           <div className="flex-1">
