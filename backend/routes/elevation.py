@@ -13,16 +13,24 @@ def get_elevation(lat: float, lon: float) -> float | None:
     if key in _cache:
         return _cache[key]
     try:
+        # Use the standard forecast endpoint — already works on Render
+        # elevation is returned in the response metadata
         resp = requests.get(
-            "https://api.open-meteo.com/v1/elevation",
-            params={"latitude": lat, "longitude": lon},
-            timeout=5
+            "https://api.open-meteo.com/v1/forecast",
+            params={
+                "latitude":  lat,
+                "longitude": lon,
+                "hourly":    "temperature_2m",
+                "forecast_days": 1,
+            },
+            timeout=8
         )
-        logger.info("Elevation API status: %s body: %s", resp.status_code, resp.text[:200])
         resp.raise_for_status()
         data = resp.json()
-        elev = data["elevation"][0]
-        _cache[key] = elev
+        elev = data.get("elevation")
+        logger.info("Elevation for %s,%s = %s", lat, lon, elev)
+        if elev is not None:
+            _cache[key] = elev
         return elev
     except Exception as e:
         logger.warning("Elevation fetch failed: %s", e)
@@ -39,11 +47,8 @@ def get_prominence(lat: float, lon: float) -> float | None:
         (lat, lon + 0.065),
         (lat, lon - 0.065),
     ]
-    surrounds = []
-    for la, lo in offsets:
-        e = get_elevation(la, lo)
-        if e is not None:
-            surrounds.append(e)
+    surrounds = [e for la, lo in offsets
+                 if (e := get_elevation(la, lo)) is not None]
     if not surrounds:
         return None
     return max(0.0, center - sum(surrounds) / len(surrounds))
