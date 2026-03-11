@@ -17,7 +17,7 @@ import {
 
 function formatHour(timeStr) {
   const d = new Date(timeStr);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true });
+  return d.toLocaleTimeString([], { hour: "numeric", hour12: true });
 }
 
 function getNowFraction(hourlyForDay) {
@@ -86,15 +86,16 @@ function WindTooltip({ active, payload, label, wUnit }) {
 }
 
 const CHART_TYPES = [
+  { key: "cards",         label: "Hourly", icon: "🕐" },
   { key: "temperature",   label: "Temp",   icon: "🌡" },
   { key: "precipitation", label: "Precip", icon: "🌧" },
   { key: "wind",          label: "Wind",   icon: "💨" },
-  { key: "cards",         label: "Cards",  icon: "🃏" },
 ];
 
 export default function HourlyForecast() {
   const { hourlyForDay, fmt, fmtWind, tUnit, wUnit, forecastStatus } = useWeather();
-  const [activeChart, setActiveChart] = useState("temperature");
+  // Default to cards — most scannable on mobile, shows all data at once
+  const [activeChart, setActiveChart] = useState("cards");
 
   if (forecastStatus === "loading") {
     return (
@@ -114,32 +115,34 @@ export default function HourlyForecast() {
     );
   }
 
-  const nowFraction  = getNowFraction(hourlyForDay);
-  const nowIndex     = getCurrentHourIndex(hourlyForDay);
-  const isToday      = nowFraction !== null;
+  const nowFraction = getNowFraction(hourlyForDay);
+  const nowIndex    = getCurrentHourIndex(hourlyForDay);
+  const isToday     = nowFraction !== null;
 
-  // Tag each point as past/future
+  // Only show % probability axis/line if data actually exists
+  const hasProbability = hourlyForDay.some(
+    (h) => h.precipitation_probability != null && h.precipitation_probability > 0
+  );
+
   const chartData = hourlyForDay.map((h, i) => ({
     time:         formatHour(h.time),
     Temp:         fmt(h.temperature_c),
     "Feels Like": h.feels_like_c != null && h.feels_like_c !== 0 ? fmt(h.feels_like_c) : null,
     Precip:       h.precipitation_mm ?? 0,
-    Probability:  h.precipitation_probability ?? null,
+    Probability:  hasProbability ? (h.precipitation_probability ?? null) : null,
     Wind:         fmtWind(h.wind_speed_kmh),
     isPast:       isToday && nowIndex !== null && i < nowIndex,
     isNow:        i === nowIndex && isToday,
   }));
 
-  // Split into two series for past and future so we can style them independently
-  // Past points get null for future series and vice versa
-  const chartDataSplit = chartData.map((d, i) => ({
+  const chartDataSplit = chartData.map((d) => ({
     ...d,
-    TempPast:         d.isPast || d.isNow ? d.Temp         : null,
-    TempFuture:       !d.isPast           ? d.Temp         : null,
-    FeelsPast:        d.isPast || d.isNow ? d["Feels Like"]: null,
-    FeelsFuture:      !d.isPast           ? d["Feels Like"]: null,
-    WindPast:         d.isPast || d.isNow ? d.Wind         : null,
-    WindFuture:       !d.isPast           ? d.Wind         : null,
+    TempPast:    d.isPast || d.isNow ? d.Temp          : null,
+    TempFuture:  !d.isPast           ? d.Temp          : null,
+    FeelsPast:   d.isPast || d.isNow ? d["Feels Like"] : null,
+    FeelsFuture: !d.isPast           ? d["Feels Like"] : null,
+    WindPast:    d.isPast || d.isNow ? d.Wind          : null,
+    WindFuture:  !d.isPast           ? d.Wind          : null,
   }));
 
   const validHumidity = hourlyForDay.filter((h) => h.humidity_pct > 0);
@@ -151,7 +154,15 @@ export default function HourlyForecast() {
   const temps       = hourlyForDay.map((h) => h.temperature_c);
   const dayAvgTemp  = fmt((Math.max(...temps) + Math.min(...temps)) / 2);
 
-  const xProps = { dataKey: "time", tick: { fill: "#64748b", fontSize: 10 }, tickLine: false, axisLine: false, interval: 2 };
+  // Fewer x-axis labels on mobile to prevent overlap
+  const xInterval = hourlyForDay.length > 16 ? 3 : 2;
+  const xProps = {
+    dataKey: "time",
+    tick: { fill: "#64748b", fontSize: 10 },
+    tickLine: false,
+    axisLine: false,
+    interval: xInterval,
+  };
   const yProps = { tick: { fill: "#64748b", fontSize: 10 }, tickLine: false, axisLine: false };
   const grid   = { strokeDasharray: "3 3", stroke: "rgba(255,255,255,0.05)" };
 
@@ -180,7 +191,64 @@ export default function HourlyForecast() {
         ))}
       </div>
 
-      {/* ── Temperature ── */}
+      {/* ── Hourly table — all data at a glance, mobile-first ── */}
+      {activeChart === "cards" && (
+        <div className="overflow-x-auto -mx-1 px-1">
+          <table className="w-full min-w-max text-xs border-collapse">
+            <thead>
+              <tr className="text-slate-500 uppercase tracking-wider text-left">
+                <th className="pb-2 pr-4 font-medium">Time</th>
+                <th className="pb-2 pr-3 font-medium text-center">Sky</th>
+                <th className="pb-2 pr-4 font-medium">Temp</th>
+                <th className="pb-2 pr-4 font-medium">Feels</th>
+                <th className="pb-2 pr-4 font-medium">Rain</th>
+                <th className="pb-2 font-medium">Wind</th>
+              </tr>
+            </thead>
+            <tbody>
+              {hourlyForDay.map((h, i) => {
+                const { isPast, isNow } = chartData[i];
+                return (
+                  <tr
+                    key={i}
+                    className={`border-t border-white/5
+                      ${isNow  ? "bg-amber-500/8"
+                      : isPast ? "opacity-35"
+                               : ""}`}
+                  >
+                    <td className={`py-2.5 pr-4 font-mono font-semibold whitespace-nowrap
+                      ${isNow ? "text-amber-300" : isPast ? "text-slate-600" : "text-slate-300"}`}>
+                      {isNow ? "NOW" : formatHour(h.time)}
+                    </td>
+                    <td className="py-2.5 pr-3 text-center">
+                      <WeatherIcon icon={h.icon} className="w-4 h-4 inline-block" />
+                    </td>
+                    <td className={`py-2.5 pr-4 font-semibold whitespace-nowrap
+                      ${isPast ? "text-slate-500" : "text-white"}`}>
+                      {fmt(h.temperature_c)}{tUnit}
+                    </td>
+                    <td className="py-2.5 pr-4 text-slate-400 whitespace-nowrap">
+                      {h.feels_like_c != null && h.feels_like_c !== 0
+                        ? `${fmt(h.feels_like_c)}${tUnit}`
+                        : "—"}
+                    </td>
+                    <td className="py-2.5 pr-4 whitespace-nowrap">
+                      {h.precipitation_mm > 0.05
+                        ? <span className="text-sky-400">{h.precipitation_mm.toFixed(1)}mm</span>
+                        : <span className="text-slate-700">—</span>}
+                    </td>
+                    <td className="py-2.5 whitespace-nowrap text-slate-300">
+                      {fmtWind(h.wind_speed_kmh)}<span className="text-slate-500 text-xs ml-0.5">{wUnit}</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ── Temperature chart ── */}
       {activeChart === "temperature" && (
         <div className="h-48">
           <ResponsiveContainer width="100%" height="100%">
@@ -211,10 +279,8 @@ export default function HourlyForecast() {
                 y={dayAvgTemp} stroke="#f87171" strokeDasharray="4 4" strokeWidth={1.5}
                 label={{ value: `avg ${dayAvgTemp}${tUnit}`, fill: "#f87171", fontSize: 10, position: "insideTopRight" }}
               />
-              {/* Past: dim stroke + dim fill */}
               <Area type="monotone" dataKey="FeelsPast"   stroke="#a78bfa" strokeWidth={1.5} strokeOpacity={0.3} fill="url(#feelsPast)"   dot={false} connectNulls legendType="none" />
               <Area type="monotone" dataKey="TempPast"    stroke="#38bdf8" strokeWidth={2}   strokeOpacity={0.3} fill="url(#tempPast)"    dot={false} connectNulls legendType="none" />
-              {/* Future: full brightness */}
               <Area type="monotone" dataKey="FeelsFuture" stroke="#a78bfa" strokeWidth={1.5} strokeOpacity={1}   fill="url(#feelsFuture)" dot={false} connectNulls legendType="none" />
               <Area type="monotone" dataKey="TempFuture"  stroke="#38bdf8" strokeWidth={2}   strokeOpacity={1}   fill="url(#tempFuture)"  dot={false} connectNulls legendType="none" />
             </AreaChart>
@@ -222,28 +288,33 @@ export default function HourlyForecast() {
         </div>
       )}
 
-      {/* ── Precipitation ── */}
+      {/* ── Precipitation chart ── */}
       {activeChart === "precipitation" && (
         <div className="h-48">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
               <CartesianGrid {...grid} />
               <XAxis {...xProps} />
-              <YAxis yAxisId="mm"  {...yProps} tickFormatter={(v) => `${v}mm`} />
-              <YAxis yAxisId="pct" orientation="right" {...yProps} tickFormatter={(v) => `${v}%`} domain={[0, 100]} />
+              <YAxis yAxisId="mm" {...yProps} tickFormatter={(v) => `${v}mm`} />
+              {/* Only render % axis when data actually exists */}
+              {hasProbability && (
+                <YAxis yAxisId="pct" orientation="right" {...yProps} tickFormatter={(v) => `${v}%`} domain={[0, 100]} />
+              )}
               <Tooltip content={<PrecipTooltip />} />
               <Bar yAxisId="mm" dataKey="Precip" radius={[3,3,0,0]}>
                 {chartData.map((entry, i) => (
                   <Cell key={i} fill="#38bdf8" fillOpacity={entry.isPast ? 0.15 : 0.7} />
                 ))}
               </Bar>
-              <Area yAxisId="pct" type="monotone" dataKey="Probability" stroke="#818cf8" strokeWidth={2} fill="none" dot={false} connectNulls />
+              {hasProbability && (
+                <Area yAxisId="pct" type="monotone" dataKey="Probability" stroke="#818cf8" strokeWidth={2} fill="none" dot={false} connectNulls />
+              )}
             </BarChart>
           </ResponsiveContainer>
         </div>
       )}
 
-      {/* ── Wind ── */}
+      {/* ── Wind chart ── */}
       {activeChart === "wind" && (
         <div className="h-48">
           <ResponsiveContainer width="100%" height="100%">
@@ -270,43 +341,6 @@ export default function HourlyForecast() {
               <Area type="monotone" dataKey="WindFuture" stroke="#2dd4bf" strokeWidth={2} strokeOpacity={1}   fill="url(#windFuture)" dot={false} connectNulls legendType="none" />
             </AreaChart>
           </ResponsiveContainer>
-        </div>
-      )}
-
-      {/* ── Cards ── */}
-      {activeChart === "cards" && (
-        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-          {hourlyForDay.map((h, i) => {
-            const { isPast, isNow } = chartData[i];
-            return (
-              <div
-                key={i}
-                className={`flex-shrink-0 w-20 rounded-2xl p-3 border flex flex-col
-                           items-center gap-2 text-center transition-all
-                           ${isNow  ? "bg-amber-500/10 border-amber-500/30 scale-105"
-                           : isPast ? "bg-white/[0.02] border-white/5 opacity-40"
-                                    : "bg-white/5 border-white/10 hover:bg-white/10"}`}
-              >
-                {isNow && <span className="text-amber-400 text-xs font-bold leading-none">NOW</span>}
-                <span className={`text-xs font-medium leading-none
-                  ${isNow ? "text-amber-300" : isPast ? "text-slate-600" : "text-slate-400"}`}>
-                  {formatHour(h.time)}
-                </span>
-                <div className="w-6 h-6 text-slate-300">
-                  <WeatherIcon icon={h.icon} className="w-6 h-6" />
-                </div>
-                <span className={`text-sm font-bold ${isPast ? "text-slate-500" : "text-white"}`}>
-                  {fmt(h.temperature_c)}{tUnit}
-                </span>
-                {h.precipitation_mm > 0.05 && (
-                  <span className="text-sky-400 text-xs">{h.precipitation_mm.toFixed(1)}mm</span>
-                )}
-                <span className="text-slate-500 text-xs">
-                  {fmtWind(h.wind_speed_kmh)}{wUnit.replace("km/", "")}
-                </span>
-              </div>
-            );
-          })}
         </div>
       )}
     </div>
