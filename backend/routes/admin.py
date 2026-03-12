@@ -5,7 +5,6 @@ from collections import defaultdict
 from services.supabase_client import get_client
 
 admin_bp = Blueprint("admin", __name__)
-ANALYTICS_FILE = "/tmp/analytics.json"
 
 
 def _check_auth(req):
@@ -14,12 +13,13 @@ def _check_auth(req):
 
 
 def _load_analytics():
-    import json
-    if not os.path.exists(ANALYTICS_FILE):
-        return []
+    """Load analytics from Supabase — persists across redeploys."""
     try:
-        with open(ANALYTICS_FILE) as f:
-            return json.load(f)
+        result = get_client().table("analytics") \
+            .select("date,hour,location") \
+            .order("created_at", desc=False) \
+            .execute()
+        return result.data or []
     except Exception:
         return []
 
@@ -241,7 +241,6 @@ def admin_analytics():
     if not authed:
         return _login_page()
 
-    import json
     data = _load_analytics()
     now       = datetime.now(timezone.utc)
     today     = now.strftime("%Y-%m-%d")
@@ -252,12 +251,12 @@ def admin_analytics():
     by_date     = defaultdict(int)
     by_hour     = defaultdict(int)
     by_location = defaultdict(int)
-    counts = {"today":0,"yesterday":0,"week":0,"month":0,"total":len(data)}
+    counts = {"today": 0, "yesterday": 0, "week": 0, "month": 0, "total": len(data)}
 
     for e in data:
-        d = e.get("date","")
+        d = e.get("date", "")
         by_date[d] += 1
-        by_hour[e.get("hour",0)] += 1
+        by_hour[e.get("hour", 0)] += 1
         by_location[e.get("location") or "Unknown"] += 1
         if d == today:     counts["today"] += 1
         if d == yesterday: counts["yesterday"] += 1
@@ -266,24 +265,24 @@ def admin_analytics():
 
     stats_html = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px">'
     for label, key, color in [
-        ("Today","today","#38bdf8"),("Yesterday","yesterday","#818cf8"),
-        ("Last 7 days","week","#34d399"),("Last 30 days","month","#fb923c"),
+        ("Today", "today", "#38bdf8"), ("Yesterday", "yesterday", "#818cf8"),
+        ("Last 7 days", "week", "#34d399"), ("Last 30 days", "month", "#fb923c"),
     ]:
         stats_html += f"""<div class="stat">
             <div class="stat-val" style="color:{color}">{counts[key]}</div>
             <div class="stat-label">{label}</div></div>"""
     stats_html += "</div>"
 
-    last_30 = [(( now - timedelta(days=i)).strftime("%Y-%m-%d"),
+    last_30 = [((now - timedelta(days=i)).strftime("%Y-%m-%d"),
                 by_date.get((now - timedelta(days=i)).strftime("%Y-%m-%d"), 0))
-               for i in range(29,-1,-1)]
-    max_v = max((v for _,v in last_30), default=1) or 1
+               for i in range(29, -1, -1)]
+    max_v = max((v for _, v in last_30), default=1) or 1
 
     chart = '<div style="margin-bottom:24px">'
     chart += '<h3 style="color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px">Last 30 Days</h3>'
     chart += '<div style="display:flex;align-items:flex-end;gap:3px;height:80px">'
     for day, views in last_30:
-        pct   = int((views/max_v)*100)
+        pct   = int((views / max_v) * 100)
         color = "#38bdf8" if day == today else "#1e40af"
         chart += f'<div style="flex:1;background:{color};border-radius:3px 3px 0 0;height:{max(pct,2)}%;opacity:0.8" title="{day}: {views}"></div>'
     chart += '</div></div>'
@@ -292,7 +291,7 @@ def admin_analytics():
     max_loc  = top_locs[0][1] if top_locs else 1
     locs = '<div><h3 style="color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px">Top Locations</h3>'
     for loc, views in top_locs:
-        pct = int((views/max_loc)*100)
+        pct = int((views / max_loc) * 100)
         locs += f"""<div style="margin-bottom:10px">
           <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
             <span style="color:#cbd5e1">{loc}</span>
@@ -346,15 +345,15 @@ def delete_feedback(fid):
 def _login_page():
     return make_response("""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Cairn Admin</title>
-<style>*{{box-sizing:border-box;margin:0;padding:0}}
-body{{font-family:-apple-system,sans-serif;background:#0a0f1e;
-      display:flex;align-items:center;justify-content:center;min-height:100vh}}
-input{{width:100%;padding:12px 16px;border-radius:12px;margin-bottom:10px;
+<style>*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,sans-serif;background:#0a0f1e;
+      display:flex;align-items:center;justify-content:center;min-height:100vh}
+input{width:100%;padding:12px 16px;border-radius:12px;margin-bottom:10px;
        border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);
-       color:white;font-size:15px;outline:none}}
-button{{width:100%;padding:12px;border-radius:12px;border:none;
+       color:white;font-size:15px;outline:none}
+button{width:100%;padding:12px;border-radius:12px;border:none;
         background:rgba(56,189,248,0.2);color:#38bdf8;
-        font-size:15px;font-weight:600;cursor:pointer}}</style></head>
+        font-size:15px;font-weight:600;cursor:pointer}</style></head>
 <body><div style="width:320px;padding:32px;background:rgba(255,255,255,0.04);
               border:1px solid rgba(255,255,255,0.08);border-radius:20px">
 <h2 style="color:white;margin-bottom:20px;text-align:center">🏔 Cairn Admin</h2>
