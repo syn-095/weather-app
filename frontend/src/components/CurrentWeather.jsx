@@ -44,12 +44,7 @@ export default function CurrentWeather({ summitMode = false }) {
   );
 
   return (
-    <div className="relative overflow-hidden rounded-3xl p-8
-                    bg-gradient-to-br from-sky-500/20 via-blue-600/10 to-indigo-700/20
-                    border border-white/15 backdrop-blur-md shadow-2xl">
-      <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full
-                      bg-sky-400/10 blur-3xl pointer-events-none" />
-
+    <div className="rounded-3xl p-8 bg-white/[0.06] border border-white/10 backdrop-blur-sm">
       <div className="relative z-10 flex flex-wrap items-start justify-between gap-6">
         {/* Left: temp + description */}
         <div>
