@@ -11,12 +11,14 @@ import ClimateCard from "./components/ClimateCard";
 import FeedbackButton from "./components/FeedbackButton";
 import GroundTruthCard from "./components/GroundTruthCard";
 import ViewToggle from "./components/ViewToggle";
+import FavouritesBar from "./components/FavouritesBar";
 import { ErrorState } from "./components/LoadingState";
 import { useWeather } from "./hooks/useWeather";
 import { useElevation } from "./hooks/useElevation";
+import { useFavourites } from "./hooks/useFavourites";
 
-const DEFAULT     = { lat: 51.5074, lon: -0.1278, name: "London, GB" };
-const API_BASE    = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+const DEFAULT      = { lat: 51.5074, lon: -0.1278, name: "London, GB" };
+const API_BASE     = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
 const LOCATION_KEY = "cairn_last_location";
 
 function getInitialLocation() {
@@ -50,15 +52,37 @@ function formatDayTitle(selectedDay) {
     .toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
 }
 
+function StarButton({ isFav, disabled, onToggle }) {
+  return (
+    <button
+      onClick={onToggle}
+      disabled={disabled}
+      title={isFav ? "Remove from favourites" : disabled ? "Max 5 favourites" : "Save to favourites"}
+      className={`p-1.5 rounded-full transition-all
+                  ${isFav
+                    ? "text-yellow-400 hover:text-yellow-300"
+                    : disabled
+                      ? "text-slate-700 cursor-not-allowed"
+                      : "text-slate-500 hover:text-yellow-400"
+                  }`}
+    >
+      <svg className="w-5 h-5" fill={isFav ? "currentColor" : "none"}
+           stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+      </svg>
+    </button>
+  );
+}
+
 function WeatherDashboard() {
   const {
     forecastStatus, forecastError,
     aggregatedDaily, selectedDay, load,
   } = useWeather();
 
-  const marine         = useSelector((s) => s.weather.marine);
-  const airQuality     = useSelector((s) => s.weather.airQuality);
-  const climateNormals = useSelector((s) => s.weather.climateNormals);
+  const marine          = useSelector((s) => s.weather.marine);
+  const airQuality      = useSelector((s) => s.weather.airQuality);
+  const climateNormals  = useSelector((s) => s.weather.climateNormals);
   const currentLocation = useSelector((s) => s.weather.location);
   const latitude        = useSelector((s) => s.weather.latitude);
   const longitude       = useSelector((s) => s.weather.longitude);
@@ -67,6 +91,8 @@ function WeatherDashboard() {
     elevation, viewMode, autoMode,
     toggleView, toggleDisabled, isUserOverride,
   } = useElevation(latitude, longitude, currentLocation);
+
+  const { favourites, isFavourite, toggleFavourite, maxReached } = useFavourites();
 
   useEffect(() => {
     const initial = getInitialLocation();
@@ -83,6 +109,16 @@ function WeatherDashboard() {
   const isLoading = forecastStatus === "loading";
   const hasData   = aggregatedDaily.length > 0;
   const isSummit  = viewMode === "summit";
+  const currentIsFav = latitude && longitude ? isFavourite(latitude, longitude) : false;
+
+  function handleSelectFavourite(fav) {
+    load(fav.lat, fav.lon, fav.name, 7);
+    pingAnalytics(fav.name);
+  }
+
+  function handleRemoveFavourite(lat, lon) {
+    toggleFavourite(lat, lon, "");
+  }
 
   return (
     <div className="space-y-6">
@@ -93,9 +129,25 @@ function WeatherDashboard() {
         />
       )}
 
-      {/* View toggle — sits above hero card */}
+      {/* Favourites bar */}
+      {favourites.length > 0 && (
+        <FavouritesBar
+          favourites={favourites}
+          currentLat={latitude}
+          currentLon={longitude}
+          onSelect={handleSelectFavourite}
+          onRemove={handleRemoveFavourite}
+        />
+      )}
+
+      {/* View toggle + star button */}
       {hasData && (
-        <div className="flex justify-end px-1">
+        <div className="flex items-center justify-between px-1">
+          <StarButton
+            isFav={currentIsFav}
+            disabled={!currentIsFav && maxReached}
+            onToggle={() => latitude && longitude && toggleFavourite(latitude, longitude, currentLocation)}
+          />
           <ViewToggle
             viewMode={viewMode}
             onToggle={toggleView}
@@ -127,13 +179,12 @@ function WeatherDashboard() {
 
       {hasData && (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-          {airQuality    && <AirQualityCard />}
-          {marine        && <MarineCard />}
+          {airQuality     && <AirQualityCard />}
+          {marine         && <MarineCard />}
           {climateNormals && <ClimateCard />}
         </div>
       )}
 
-      {/* Ground truth — always show when data loaded */}
       {hasData && <GroundTruthCard />}
 
       {!isLoading && !hasData && forecastStatus !== "failed" && (
