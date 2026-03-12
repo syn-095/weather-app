@@ -45,7 +45,8 @@ export default function CurrentWeather({ summitMode = false }) {
 
   return (
     <div className="rounded-3xl p-8 bg-white/[0.06] border border-white/10 backdrop-blur-sm">
-      <div className="relative z-10 flex flex-wrap items-start justify-between gap-6">
+
+      <div className="flex flex-wrap items-start justify-between gap-6">
         {/* Left: temp + description */}
         <div>
           <div className="flex items-center gap-3 mb-2">
@@ -69,7 +70,7 @@ export default function CurrentWeather({ summitMode = false }) {
 
           {location && (
             <div className="flex items-center gap-1.5 mt-3 text-slate-300">
-              <svg className="w-4 h-4 text-sky-400" fill="none" stroke="currentColor"
+              <svg className="w-4 h-4 text-sky-400 flex-shrink-0" fill="none" stroke="currentColor"
                    strokeWidth="2" viewBox="0 0 24 24">
                 <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/>
                 <circle cx="12" cy="10" r="3"/>
@@ -79,7 +80,7 @@ export default function CurrentWeather({ summitMode = false }) {
           )}
         </div>
 
-        {/* Right: stats — summit mode adds cloud base and freeze level */}
+        {/* Right: stats */}
         <div className="grid grid-cols-2 gap-3 min-w-[200px]">
           <Stat icon="💧" label="Humidity"  value={`${Math.round(current.humidity_pct)}%`} />
           <Stat icon="💨" label="Wind"      value={`${fmtWind(current.wind_speed_kmh)} ${wUnit}`} />
@@ -109,7 +110,7 @@ export default function CurrentWeather({ summitMode = false }) {
       </div>
 
       {/* Sources section */}
-      <div className="relative z-10 mt-5 pt-4 border-t border-white/10 space-y-3">
+      <div className="mt-5 pt-4 border-t border-white/10 space-y-3">
         <div>
           <p className="text-xs text-slate-500 uppercase tracking-wider mb-2">
             Forecast sources ({forecastSources.length})
