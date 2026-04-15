@@ -40,7 +40,7 @@ export default function DailyForecast() {
     return (
       <div className="flex gap-3 overflow-x-auto pb-2">
         {Array.from({ length: 7 }).map((_, i) => (
-          <div key={i} className="flex-shrink-0 w-28 h-56 rounded-2xl bg-white/5 animate-pulse border border-white/10" />
+          <div key={i} className="flex-shrink-0 w-28 h-56 rounded-2xl bg-white/5 border border-white/10" />
         ))}
       </div>
     );

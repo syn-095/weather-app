@@ -48,7 +48,7 @@ function pingAnalytics(locationName) {
 
 function formatDayTitle(selectedDay) {
   if (!selectedDay) return "Hourly Breakdown";
-  return "Hourly \u2014 " + new Date(selectedDay.date + "T12:00:00")
+  return "Hourly — " + new Date(selectedDay.date + "T12:00:00")
     .toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
 }
 
@@ -162,13 +162,13 @@ function WeatherDashboard() {
 
       {(isLoading || hasData) && (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <section className="rounded-3xl p-5 bg-white/5 border border-white/10 backdrop-blur-sm">
+          <section className="rounded-3xl p-5 bg-white/5 border border-white/10">
             <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">
               7-Day Forecast
             </h2>
             <DailyForecast />
           </section>
-          <section className="rounded-3xl p-5 bg-white/5 border border-white/10 backdrop-blur-sm">
+          <section className="rounded-3xl p-5 bg-white/5 border border-white/10">
             <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">
               {formatDayTitle(selectedDay)}
             </h2>
