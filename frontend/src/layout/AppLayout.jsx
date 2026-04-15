@@ -3,14 +3,16 @@ import SearchBar from "../components/SearchBar";
 import { useWeather } from "../hooks/useWeather";
 
 export default function AppLayout({ children }) {
-  const { flipUnits, units } = useWeather();
+  const { flipUnits, units, sources } = useWeather();
+  const providerCount = sources.filter(
+    s => !s.includes("air") && !s.includes("marine") && !s.includes("climate")
+  ).length;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white font-sans">
+    <div className="min-h-screen bg-slate-950 text-white font-sans overflow-x-hidden">
       <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-0 left-1/4 w-96 h-96 rounded-full bg-sky-900/20 blur-3xl" />
-        <div className="absolute bottom-1/4 right-1/4 w-80 h-80 rounded-full bg-blue-900/20 blur-3xl" />
-        <div className="absolute top-1/2 left-0 w-64 h-64 rounded-full bg-indigo-900/15 blur-3xl" />
+        <div className="absolute top-0 left-1/4 w-96 h-96 rounded-full bg-sky-900/20 blur-2xl" />
+        <div className="absolute bottom-1/4 right-1/4 w-80 h-80 rounded-full bg-blue-900/20 blur-2xl" />
       </div>
 
       <header className="relative z-20 border-b border-white/5 bg-slate-950/80 backdrop-blur-xl sticky top-0">
@@ -40,13 +42,7 @@ export default function AppLayout({ children }) {
 
       <footer className="relative z-10 border-t border-white/5 mt-12 py-6 text-center text-slate-600 text-xs">
         <p>
-          Weather data from{" "}
-          <a href="https://open-meteo.com" target="_blank" rel="noopener noreferrer"
-            className="text-sky-700 hover:text-sky-500 transition-colors">Open-Meteo</a>
-          {" "}&amp;{" "}
-          <a href="https://www.weatherapi.com" target="_blank" rel="noopener noreferrer"
-            className="text-sky-700 hover:text-sky-500 transition-colors">WeatherAPI</a>
-          {" · "}WeatherAgg © {new Date().getFullYear()}
+          Cairn — {providerCount > 0 ? `${providerCount} providers` : "multiple providers"} · © {new Date().getFullYear()}
         </p>
       </footer>
     </div>

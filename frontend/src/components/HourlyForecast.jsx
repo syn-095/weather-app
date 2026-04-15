@@ -101,7 +101,7 @@ export default function HourlyForecast() {
     return (
       <div className="space-y-2">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-14 rounded-2xl bg-white/5 animate-pulse border border-white/10" />
+          <div key={i} className="h-14 rounded-2xl bg-white/5 border border-white/10" />
         ))}
       </div>
     );
@@ -212,7 +212,7 @@ export default function HourlyForecast() {
                   <tr
                     key={i}
                     className={`border-t border-white/5
-                      ${isNow  ? "bg-amber-500/8"
+                      ${isNow  ? "bg-amber-500/10"
                       : isPast ? "opacity-35"
                                : ""}`}
                   >

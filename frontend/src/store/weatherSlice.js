@@ -79,7 +79,13 @@ const weatherSlice = createSlice({
         state.airQuality = action.payload.air_quality ?? null;
         state.marine = action.payload.marine ?? null;
         state.climateNormals = action.payload.climate_normals ?? null;
-        state.selectedDayIndex = 0;
+        // Default to today, not necessarily index 0 (backend may include yesterday)
+        const todayStr = (() => {
+          const d = new Date();
+          return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+        })();
+        const todayIndex = action.payload.aggregated_daily.findIndex(d => d.date === todayStr);
+        state.selectedDayIndex = todayIndex >= 0 ? todayIndex : 0;
       })
       .addCase(loadForecast.rejected, (state, action) => {
         state.forecastStatus = "failed";

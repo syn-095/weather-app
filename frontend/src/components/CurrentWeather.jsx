@@ -44,7 +44,7 @@ export default function CurrentWeather({ summitMode = false }) {
   );
 
   return (
-    <div className="rounded-3xl p-8 bg-white/[0.06] border border-white/10 backdrop-blur-sm">
+    <div className="rounded-3xl p-8 bg-white/[0.06] border border-white/10">
 
       <div className="flex flex-wrap items-start justify-between gap-6">
         {/* Left: temp + description */}
@@ -89,10 +89,10 @@ export default function CurrentWeather({ summitMode = false }) {
             <Stat
               icon="🧊"
               label="Freeze lvl"
-              value={`${Math.round(
+              value={`${Math.max(0, Math.round(
                 (current.elevation_m || 0) +
                 (current.temperature_c / 6.5) * 1000
-              )}m`}
+              ))}m`}
             />
           )}
           {summitMode && (

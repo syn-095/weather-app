@@ -7,7 +7,7 @@ export function FullPageLoader() {
         <div className="absolute inset-0 rounded-full border-2 border-sky-500/20" />
         <div className="absolute inset-0 rounded-full border-t-2 border-sky-400 animate-spin" />
       </div>
-      <p className="text-slate-400 text-sm animate-pulse">Fetching weather data…</p>
+      <p className="text-slate-400 text-sm">Fetching weather data…</p>
     </div>
   );
 }
@@ -22,9 +22,9 @@ export function ErrorState({ message, onRetry }) {
 
       {isColdStart ? (
         <div className="space-y-2">
-          <p className="text-red-300 font-medium">Backend is waking up…</p>
+          <p className="text-red-300 font-medium">Service is warming up…</p>
           <p className="text-slate-400 text-sm">
-            The free server goes to sleep when inactive.<br />
+            The free server wakes up on first request.<br />
             This first load can take up to 30–60 seconds.
           </p>
         </div>
