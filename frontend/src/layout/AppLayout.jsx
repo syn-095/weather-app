@@ -3,10 +3,13 @@ import SearchBar from "../components/SearchBar";
 import { useWeather } from "../hooks/useWeather";
 
 export default function AppLayout({ children }) {
-  const { flipUnits, units } = useWeather();
+  const { flipUnits, units, sources } = useWeather();
+  const providerCount = sources.filter(
+    s => !s.includes("air") && !s.includes("marine") && !s.includes("climate")
+  ).length;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white font-sans">
+    <div className="min-h-screen bg-slate-950 text-white font-sans overflow-x-hidden">
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute top-0 left-1/4 w-96 h-96 rounded-full bg-sky-900/20 blur-2xl" />
         <div className="absolute bottom-1/4 right-1/4 w-80 h-80 rounded-full bg-blue-900/20 blur-2xl" />
@@ -38,7 +41,9 @@ export default function AppLayout({ children }) {
       </main>
 
       <footer className="relative z-10 border-t border-white/5 mt-12 py-6 text-center text-slate-600 text-xs">
-        <p>Weather data from 7 providers · Cairn © {new Date().getFullYear()}</p>
+        <p>
+          Cairn — {providerCount > 0 ? `${providerCount} providers` : "multiple providers"} · © {new Date().getFullYear()}
+        </p>
       </footer>
     </div>
   );
