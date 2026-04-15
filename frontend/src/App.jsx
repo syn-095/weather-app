@@ -106,6 +106,17 @@ function WeatherDashboard() {
     }
   }, [currentLocation, latitude, longitude]);
 
+  // Auto-refresh every 20 minutes so data doesn't go stale
+  useEffect(() => {
+    if (!latitude || !longitude || !currentLocation) return;
+    const id = setInterval(() => {
+      if (document.visibilityState !== "hidden") {
+        load(latitude, longitude, currentLocation, 7);
+      }
+    }, 20 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [latitude, longitude, currentLocation]);
+
   const isLoading = forecastStatus === "loading";
   const hasData   = aggregatedDaily.length > 0;
   const isSummit  = viewMode === "summit";

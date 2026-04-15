@@ -81,7 +81,7 @@ export default function CurrentWeather({ summitMode = false }) {
         </div>
 
         {/* Right: stats */}
-        <div className="grid grid-cols-2 gap-3 min-w-[200px]">
+        <div className="grid grid-cols-2 gap-3 w-full sm:w-auto">
           <Stat icon="💧" label="Humidity"  value={`${Math.round(current.humidity_pct)}%`} />
           <Stat icon="💨" label="Wind"      value={`${fmtWind(current.wind_speed_kmh)} ${wUnit}`} />
           <Stat icon="🌧" label="Precip"    value={`${current.precipitation_mm} mm`} />
