@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useSelector } from "react-redux";
+import { useWeather } from "../hooks/useWeather";
 
 const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
 
@@ -21,6 +22,7 @@ export default function GroundTruthCard() {
   const location    = useSelector((s) => s.weather.location);
   const latitude    = useSelector((s) => s.weather.latitude);
   const longitude   = useSelector((s) => s.weather.longitude);
+  const { units, tUnit } = useWeather();
 
   const [conditions,   setConditions]   = useState(null);
   const [temperature,  setTemperature]  = useState("");
@@ -40,7 +42,11 @@ export default function GroundTruthCard() {
         location_name:  location || null,
         lat:            latitude  || null,
         lon:            longitude || null,
-        temperature_c:  temperature !== "" ? parseFloat(temperature) : null,
+        temperature_c:  temperature !== "" ? (
+          units === "imperial"
+            ? (parseFloat(temperature) - 32) * 5 / 9
+            : parseFloat(temperature)
+        ) : null,
         notes:          notes.trim() || null,
         contributor_name: name.trim() || null,
       };
@@ -65,7 +71,7 @@ export default function GroundTruthCard() {
   }
 
   return (
-    <div className="rounded-3xl border border-teal-500/15 bg-teal-500/5 backdrop-blur-sm">
+    <div className="rounded-3xl border border-teal-500/15 bg-teal-500/5">
       {/* Header — always visible */}
       <button
         onClick={() => setExpanded(e => !e)}
@@ -123,7 +129,7 @@ export default function GroundTruthCard() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <p className="text-xs text-slate-500 uppercase tracking-wider mb-1.5">
-                    Temperature (°C)
+                    Temperature ({tUnit})
                   </p>
                   <input
                     type="number"

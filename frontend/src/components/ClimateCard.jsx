@@ -14,7 +14,7 @@ export default function ClimateCard() {
   const tempRange = maxTemp - minTemp || 1;
 
   return (
-    <div className="rounded-3xl p-5 bg-white/5 border border-white/10 backdrop-blur-sm space-y-4">
+    <div className="rounded-3xl p-5 bg-white/5 border border-white/10 space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400">
           📊 Climate Normals (30yr avg)

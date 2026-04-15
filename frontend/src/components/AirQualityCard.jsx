@@ -49,7 +49,7 @@ export default function AirQualityCard() {
   const colorClass = AQI_COLORS[label] || "text-slate-300 bg-white/5 border-white/10";
 
   return (
-    <div className="rounded-3xl p-5 bg-white/5 border border-white/10 backdrop-blur-sm space-y-4">
+    <div className="rounded-3xl p-5 bg-white/5 border border-white/10 space-y-4">
       <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400">
         Air Quality
       </h2>
