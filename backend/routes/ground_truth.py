@@ -1,3 +1,4 @@
+import threading
 from flask import Blueprint, request, jsonify
 from services.supabase_client import get_client
 from datetime import datetime, timezone
@@ -47,6 +48,12 @@ def submit():
     }
 
     get_client().table("ground_truth").insert(entry).execute()
+
+    # Trigger weight recalculation in the background so this submission
+    # feeds into provider accuracy scores without blocking the response.
+    import services.weight_calculator as weight_calculator
+    threading.Thread(target=weight_calculator.calculate_weights, daemon=True).start()
+
     return jsonify({"status": "ok"}), 201
 
 

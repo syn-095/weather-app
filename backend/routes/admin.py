@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 from services.supabase_client import get_client
+import services.weight_calculator as weight_calculator
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -26,7 +27,7 @@ def _load_analytics():
 
 def _nav(secret, active):
     tabs = [("feedback", "💬 Feedback"), ("analytics", "📊 Analytics"),
-            ("ground-truth", "🏔 Ground Truth")]
+            ("ground-truth", "🏔 Ground Truth"), ("weights", "⚖️ Weights")]
     html = '<div style="display:flex;gap:8px;margin-bottom:28px;flex-wrap:wrap">'
     for key, label in tabs:
         is_active = active == key
@@ -340,6 +341,184 @@ def delete_feedback(fid):
         f"/api/admin/feedback?secret={secret}"
         f"&filter={request.args.get('filter','all')}"
     )
+
+
+@admin_bp.route("/admin/weights")
+def admin_weights():
+    authed, secret = _check_auth(request)
+    if not authed:
+        return _login_page()
+
+    msg = request.args.get("msg", "")
+
+    try:
+        rows = get_client().table("provider_weights") \
+            .select("*") \
+            .order("provider") \
+            .execute().data or []
+    except Exception:
+        rows = []
+
+    # Build nested dict: provider -> metric -> row
+    data = {}
+    for r in rows:
+        data.setdefault(r["provider"], {})[r["metric"]] = r
+
+    METRICS = ["overall", "temperature", "precipitation", "wind", "conditions"]
+    PROVIDERS = sorted(data.keys()) or [
+        "open_meteo", "yr_no", "weatherapi", "tomorrow_io",
+        "openweather", "visual_crossing", "pirate_weather"
+    ]
+
+    def _weight_color(w):
+        if w is None: return "#475569"
+        if w >= 1.15: return "#34d399"
+        if w >= 1.05: return "#86efac"
+        if w >= 0.95: return "#94a3b8"
+        if w >= 0.85: return "#fca5a5"
+        return "#f87171"
+
+    # Header row
+    header = '<tr><th style="text-align:left;padding:10px 14px;color:#64748b;font-size:11px;text-transform:uppercase">Provider</th>'
+    for m in METRICS:
+        header += f'<th style="padding:10px 14px;color:#64748b;font-size:11px;text-transform:uppercase;text-align:center">{m}</th>'
+    header += "</tr>"
+
+    body_rows = ""
+    for provider in PROVIDERS:
+        body_rows += f'<tr><td style="padding:10px 14px;color:#e2e8f0;font-size:13px;font-weight:600;white-space:nowrap">{provider}</td>'
+        for metric in METRICS:
+            row = data.get(provider, {}).get(metric)
+            w   = row["weight"]       if row else None
+            n   = row["sample_count"] if row else 0
+            mae = row["mae"]          if row else None
+            override = row.get("is_manual_override", False) if row else False
+            low_conf = (n or 0) < 10
+
+            color      = _weight_color(w)
+            cell_style = (
+                f"border:1px solid rgba(251,191,36,0.4);background:rgba(251,191,36,0.06)"
+                if override else
+                "border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.03)"
+            )
+            opacity = "opacity:0.5;" if low_conf and not override else ""
+            w_str   = f"{w:.2f}×" if w is not None else "—"
+            mae_str = f"MAE {mae:.2f}" if mae is not None else ""
+            n_str   = f"n={n}" if n else "no data"
+            tip     = f"{mae_str} · {n_str}{' · manual' if override else ''}{' · low confidence' if low_conf else ''}"
+
+            body_rows += f"""
+            <td style="padding:6px;text-align:center">
+              <div style="{cell_style};border-radius:10px;padding:6px 8px;{opacity}"
+                   title="{tip}">
+                <div style="color:{color};font-size:15px;font-weight:700;font-family:monospace">{w_str}</div>
+                <div style="color:#475569;font-size:10px;margin-top:2px">{n_str}</div>
+              </div>
+              <form method="POST" action="/api/admin/weights/set?secret={secret}"
+                    style="margin-top:4px;display:flex;gap:3px;justify-content:center">
+                <input type="hidden" name="provider" value="{provider}">
+                <input type="hidden" name="metric"   value="{metric}">
+                <input type="number" name="weight" step="0.01" min="0.1" max="3"
+                       placeholder="×"
+                       style="width:48px;padding:3px 5px;border-radius:6px;font-size:11px;
+                              border:1px solid rgba(255,255,255,0.1);
+                              background:rgba(255,255,255,0.05);color:white;text-align:center">
+                <button type="submit"
+                        style="padding:3px 7px;border-radius:6px;font-size:11px;border:none;
+                               background:rgba(56,189,248,0.15);color:#38bdf8;cursor:pointer">✓</button>
+              </form>
+            </td>"""
+        body_rows += "</tr>"
+
+    table = f"""
+    <div style="overflow-x:auto;margin-bottom:24px">
+      <table style="width:100%;border-collapse:separate;border-spacing:4px">
+        <thead>{header}</thead>
+        <tbody>{body_rows}</tbody>
+      </table>
+    </div>"""
+
+    legend = """
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px;font-size:11px;color:#64748b">
+      <span>🟢 ≥1.15 — well above average</span>
+      <span>🟡 ≈1.0 — average</span>
+      <span>🔴 ≤0.85 — below average</span>
+      <span style="color:rgba(251,191,36,0.8)">🟧 amber border — manual override</span>
+      <span>faded — &lt;10 samples (blending toward 1.0)</span>
+    </div>"""
+
+    recalc_btn = f"""
+    <a href="/api/admin/weights/recalculate?secret={secret}"
+       style="display:inline-block;padding:9px 20px;border-radius:12px;font-size:13px;
+              font-weight:600;background:rgba(56,189,248,0.12);color:#38bdf8;
+              border:1px solid rgba(56,189,248,0.25);text-decoration:none;margin-bottom:24px">
+      🔄 Recalculate weights now
+    </a>"""
+
+    msg_html = (
+        f'<p style="color:#34d399;font-size:13px;margin-bottom:16px">✓ {msg}</p>'
+        if msg else ""
+    )
+
+    subtitle = f"{len(rows)} weight entries · {len(PROVIDERS)} providers"
+    content  = msg_html + recalc_btn + legend + table
+
+    resp = make_response(_page(secret, "weights", content, subtitle))
+    resp.set_cookie("admin_secret", secret, max_age=86400 * 30, httponly=True)
+    return resp
+
+
+@admin_bp.route("/admin/weights/set", methods=["POST"])
+def admin_weights_set():
+    authed, secret = _check_auth(request)
+    if not authed:
+        return "Unauthorized", 401
+
+    provider = request.form.get("provider", "").strip()
+    metric   = request.form.get("metric",   "").strip()
+    try:
+        weight = float(request.form.get("weight", ""))
+        weight = max(0.1, min(3.0, weight))
+    except (ValueError, TypeError):
+        return redirect(f"/api/admin/weights?secret={secret}&msg=Invalid+weight+value")
+
+    if not provider or not metric:
+        return redirect(f"/api/admin/weights?secret={secret}&msg=Missing+provider+or+metric")
+
+    try:
+        get_client().table("provider_weights").upsert(
+            {
+                "provider":           provider,
+                "metric":             metric,
+                "weight":             round(weight, 3),
+                "is_manual_override": True,
+            },
+            on_conflict="provider,metric"
+        ).execute()
+        import services.weight_loader as weight_loader
+        weight_loader.invalidate_cache()
+    except Exception as exc:
+        return redirect(f"/api/admin/weights?secret={secret}&msg=Error:+{exc}")
+
+    return redirect(
+        f"/api/admin/weights?secret={secret}"
+        f"&msg=Set+{provider}+{metric}+to+{weight:.2f}x+(manual+override)"
+    )
+
+
+@admin_bp.route("/admin/weights/recalculate")
+def admin_weights_recalculate():
+    authed, secret = _check_auth(request)
+    if not authed:
+        return "Unauthorized", 401
+
+    try:
+        weight_calculator.calculate_weights()
+        msg = "Weights+recalculated+successfully"
+    except Exception as exc:
+        msg = f"Recalculation+failed:+{exc}"
+
+    return redirect(f"/api/admin/weights?secret={secret}&msg={msg}")
 
 
 def _login_page():
