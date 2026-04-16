@@ -17,7 +17,7 @@ const SOURCE_META = {
 
 export default function CurrentWeather({ summitMode = false }) {
   const {
-    current, location, sources, fetchedAt,
+    current, location, sources, fetchedAt, providerWeights,
     fmt, fmtWind, tUnit, wUnit, forecastStatus
   } = useWeather();
 
@@ -121,11 +121,25 @@ export default function CurrentWeather({ summitMode = false }) {
             )}
             {forecastSources.map((src) => {
               const meta = SOURCE_META[src] || { label: src, color: "text-slate-300", dot: "bg-slate-400" };
+              const overall = providerWeights?.[src]?.overall;
+              const showChip = overall != null && Math.abs(overall - 1.0) > 0.05;
+              const chipColor = overall >= 1.05
+                ? "text-emerald-400"
+                : overall <= 0.95
+                  ? "text-red-400"
+                  : "text-slate-500";
               return (
-                <span key={src} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full
-                                           bg-white/5 border border-white/10 text-xs font-medium">
+                <span key={src}
+                  title={showChip ? `Weighted ${overall.toFixed(2)}× based on past forecast accuracy` : undefined}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                             bg-white/5 border border-white/10 text-xs font-medium">
                   <span className={`w-1.5 h-1.5 rounded-full ${meta.dot} flex-shrink-0`} />
                   <span className={meta.color}>{meta.label}</span>
+                  {showChip && (
+                    <span className={`font-bold ${chipColor}`}>
+                      {overall.toFixed(1)}×
+                    </span>
+                  )}
                 </span>
               );
             })}
