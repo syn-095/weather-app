@@ -189,12 +189,25 @@ def admin_ground_truth():
     if not authed:
         return _login_page()
 
+    msg = request.args.get("msg", "")
+
     result = get_client().table("ground_truth") \
         .select("*") \
         .order("submitted_at", desc=True) \
         .limit(100) \
         .execute()
     readings = result.data or []
+
+    # How many are already in actuals?
+    try:
+        actuals_count = len(
+            get_client().table("actuals")
+            .select("id")
+            .eq("source", "user_ground_truth")
+            .execute().data or []
+        )
+    except Exception:
+        actuals_count = "?"
 
     CONDITION_ICONS = {
         "clear": "☀️", "partly_cloudy": "⛅", "overcast": "☁️",
@@ -228,12 +241,45 @@ def admin_ground_truth():
     if not cards:
         cards = '<p style="color:#334155;text-align:center;padding:48px 0">No readings yet.</p>'
 
+    msg_html = (
+        f'<p style="color:#34d399;font-size:13px;margin-bottom:16px">✓ {msg}</p>'
+        if msg else ""
+    )
+
+    backfill_btn = f"""
+    <div style="margin-bottom:20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <a href="/api/admin/ground-truth/backfill?secret={secret}"
+         onclick="return confirm('Lift all ground truth readings into the actuals table?')"
+         style="display:inline-block;padding:9px 20px;border-radius:12px;font-size:13px;
+                font-weight:600;background:rgba(20,184,166,0.12);color:#2dd4bf;
+                border:1px solid rgba(20,184,166,0.25);text-decoration:none">
+        🔄 Backfill all readings → actuals
+      </a>
+      <span style="font-size:12px;color:#475569">{actuals_count} readings already in actuals table</span>
+    </div>"""
+
     resp = make_response(_page(
-        secret, "ground-truth", cards,
+        secret, "ground-truth", msg_html + backfill_btn + cards,
         f"{len(readings)} readings submitted"
     ))
     resp.set_cookie("admin_secret", secret, max_age=86400*30, httponly=True)
     return resp
+
+
+@admin_bp.route("/admin/ground-truth/backfill")
+def admin_ground_truth_backfill():
+    authed, secret = _check_auth(request)
+    if not authed:
+        return "Unauthorized", 401
+
+    import services.actuals_fetcher as actuals_fetcher
+    try:
+        inserted = actuals_fetcher.backfill_all_ground_truth()
+        msg = f"Backfill+complete+—+{inserted}+new+actuals+row(s)+inserted"
+    except Exception as exc:
+        msg = f"Backfill+failed:+{exc}"
+
+    return redirect(f"/api/admin/ground-truth?secret={secret}&msg={msg}")
 
 
 @admin_bp.route("/admin/analytics")
