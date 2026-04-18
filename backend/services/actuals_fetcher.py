@@ -63,7 +63,7 @@ def fetch_and_store_actuals(lat: float, lon: float):
     """
     Main entry point called from the aggregator background thread.
     1. Fetches yesterday's actuals from Open-Meteo and upserts into `actuals`.
-    2. Converts nearby user ground truth readings into actuals rows.
+    2. Converts nearby user ground truth readings (last 7 days) into actuals rows.
     3. Triggers weight recalculation if new data was stored.
     """
     lat_r = _round_coord(lat)
@@ -72,7 +72,7 @@ def fetch_and_store_actuals(lat: float, lon: float):
     stored_new = False
 
     stored_new |= _fetch_om_actuals(lat_r, lon_r, yesterday)
-    stored_new |= _lift_ground_truth(lat_r, lon_r, yesterday)
+    stored_new |= _lift_ground_truth(lat_r, lon_r)
 
     if stored_new:
         try:
@@ -167,29 +167,20 @@ def _fetch_om_actuals(lat_r: float, lon_r: float, yesterday: str) -> bool:
         return False
 
 
-def _lift_ground_truth(lat_r: float, lon_r: float, yesterday: str) -> bool:
+def _lift_ground_truth(lat_r: float, lon_r: float) -> bool:
     """
-    Promote nearby user ground truth readings from `yesterday` into the `actuals`
+    Promote nearby user ground truth readings (last 7 days) into the `actuals`
     table (source='user_ground_truth') if not already present.
-    Returns True if a new row was inserted.
+    Skips today — the day isn't over yet so conditions aren't final.
+    Returns True if any new rows were inserted.
     """
+    from collections import Counter
     client = get_client()
 
-    # Already have user GT for this location/date?
-    try:
-        existing = client.table("actuals") \
-            .select("id") \
-            .eq("lat", lat_r) \
-            .eq("lon", lon_r) \
-            .eq("date", yesterday) \
-            .eq("source", "user_ground_truth") \
-            .execute()
-        if existing.data:
-            return False
-    except Exception:
-        return False
+    today = date.today().isoformat()
+    week_ago = (date.today() - timedelta(days=7)).isoformat()
 
-    # Fetch recent ground truth readings for yesterday
+    # Fetch all GT readings and filter locally (table is small)
     try:
         gt_resp = client.table("ground_truth") \
             .select("lat,lon,temperature_c,conditions,submitted_at") \
@@ -199,50 +190,138 @@ def _lift_ground_truth(lat_r: float, lon_r: float, yesterday: str) -> bool:
         logger.warning("actuals_fetcher: ground_truth fetch failed: %s", exc)
         return False
 
-    # Filter: within 50 km of query location and submitted on yesterday
-    nearby = []
+    # Group nearby readings by date
+    by_date: dict[str, list] = {}
     for r in readings:
         r_lat = r.get("lat")
         r_lon = r.get("lon")
         submitted = (r.get("submitted_at") or "")[:10]
-        if submitted != yesterday:
+        # Only completed past days within the last week
+        if submitted < week_ago or submitted >= today:
             continue
         if r_lat is None or r_lon is None:
             continue
         if _haversine_km(lat_r, lon_r, r_lat, r_lon) > 50:
             continue
-        nearby.append(r)
+        by_date.setdefault(submitted, []).append(r)
 
-    if not nearby:
+    if not by_date:
         return False
 
-    # Aggregate: average temperature, majority-vote conditions
-    temps = [r["temperature_c"] for r in nearby if r.get("temperature_c") is not None]
-    avg_temp = round(sum(temps) / len(temps), 1) if temps else None
+    stored_any = False
+    for day, day_readings in by_date.items():
+        # Skip if already lifted for this day
+        try:
+            existing = client.table("actuals") \
+                .select("id") \
+                .eq("lat", lat_r).eq("lon", lon_r) \
+                .eq("date", day).eq("source", "user_ground_truth") \
+                .execute()
+            if existing.data:
+                continue
+        except Exception:
+            continue
 
+        temps = [r["temperature_c"] for r in day_readings if r.get("temperature_c") is not None]
+        avg_temp = round(sum(temps) / len(temps), 1) if temps else None
+
+        cond_votes = Counter(
+            _ground_truth_to_conditions(r["conditions"])
+            for r in day_readings if r.get("conditions")
+        )
+        conditions = cond_votes.most_common(1)[0][0] if cond_votes else None
+
+        try:
+            client.table("actuals").insert({
+                "lat":        lat_r,
+                "lon":        lon_r,
+                "date":       day,
+                "source":     "user_ground_truth",
+                "temp_avg_c": avg_temp,
+                "conditions": conditions,
+            }).execute()
+            logger.info(
+                "actuals_fetcher: lifted %d GT readings for %s/%s on %s",
+                len(day_readings), lat_r, lon_r, day,
+            )
+            stored_any = True
+        except Exception as exc:
+            logger.warning("actuals_fetcher: GT actuals insert failed: %s", exc)
+
+    return stored_any
+
+
+def backfill_all_ground_truth() -> int:
+    """
+    Admin-triggered backfill: lift ALL historical ground truth readings into the
+    `actuals` table regardless of age.  Returns count of new rows inserted.
+    This rescues readings submitted before the 7-day rolling window.
+    """
     from collections import Counter
-    cond_votes = Counter(
-        _ground_truth_to_conditions(r["conditions"])
-        for r in nearby if r.get("conditions")
-    )
-    conditions = cond_votes.most_common(1)[0][0] if cond_votes else None
+    client = get_client()
 
-    row = {
-        "lat":        lat_r,
-        "lon":        lon_r,
-        "date":       yesterday,
-        "source":     "user_ground_truth",
-        "temp_avg_c": avg_temp,
-        "conditions": conditions,
-    }
+    today = date.today().isoformat()
 
     try:
-        client.table("actuals").insert(row).execute()
-        logger.info(
-            "actuals_fetcher: lifted %d GT readings for %s/%s on %s",
-            len(nearby), lat_r, lon_r, yesterday
-        )
-        return True
+        gt_resp = client.table("ground_truth") \
+            .select("lat,lon,temperature_c,conditions,submitted_at") \
+            .execute()
+        readings = gt_resp.data or []
     except Exception as exc:
-        logger.warning("actuals_fetcher: GT actuals insert failed: %s", exc)
-        return False
+        logger.warning("actuals_fetcher: backfill GT fetch failed: %s", exc)
+        return 0
+
+    # Group by (lat_4dp, lon_4dp, date) — skip today and readings with no location
+    by_key: dict[tuple, list] = {}
+    for r in readings:
+        r_lat = r.get("lat")
+        r_lon = r.get("lon")
+        submitted = (r.get("submitted_at") or "")[:10]
+        if not submitted or submitted >= today or r_lat is None or r_lon is None:
+            continue
+        key = (_round_coord(r_lat), _round_coord(r_lon), submitted)
+        by_key.setdefault(key, []).append(r)
+
+    inserted = 0
+    for (lat_r, lon_r, day), group in by_key.items():
+        try:
+            existing = client.table("actuals") \
+                .select("id") \
+                .eq("lat", lat_r).eq("lon", lon_r) \
+                .eq("date", day).eq("source", "user_ground_truth") \
+                .execute()
+            if existing.data:
+                continue
+        except Exception:
+            continue
+
+        temps = [r["temperature_c"] for r in group if r.get("temperature_c") is not None]
+        avg_temp = round(sum(temps) / len(temps), 1) if temps else None
+
+        cond_votes = Counter(
+            _ground_truth_to_conditions(r["conditions"])
+            for r in group if r.get("conditions")
+        )
+        conditions = cond_votes.most_common(1)[0][0] if cond_votes else None
+
+        try:
+            client.table("actuals").insert({
+                "lat":        lat_r,
+                "lon":        lon_r,
+                "date":       day,
+                "source":     "user_ground_truth",
+                "temp_avg_c": avg_temp,
+                "conditions": conditions,
+            }).execute()
+            inserted += 1
+            logger.info("actuals_fetcher: backfilled GT for %s/%s on %s", lat_r, lon_r, day)
+        except Exception as exc:
+            logger.warning("actuals_fetcher: backfill insert failed: %s", exc)
+
+    if inserted:
+        try:
+            weight_calculator.calculate_weights()
+        except Exception as exc:
+            logger.warning("actuals_fetcher: backfill weight recalc failed: %s", exc)
+
+    return inserted

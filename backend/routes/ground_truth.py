@@ -49,10 +49,21 @@ def submit():
 
     get_client().table("ground_truth").insert(entry).execute()
 
-    # Trigger weight recalculation in the background so this submission
-    # feeds into provider accuracy scores without blocking the response.
+    # Lift this reading into actuals and recalculate weights in the background.
+    # fetch_and_store_actuals handles the lift + recalc pipeline.
+    # If no lat/lon was provided we fall back to a direct weight recalc.
+    import services.actuals_fetcher as actuals_fetcher
     import services.weight_calculator as weight_calculator
-    threading.Thread(target=weight_calculator.calculate_weights, daemon=True).start()
+    lat = entry.get("lat")
+    lon = entry.get("lon")
+    if lat is not None and lon is not None:
+        threading.Thread(
+            target=actuals_fetcher.fetch_and_store_actuals,
+            args=(lat, lon),
+            daemon=True,
+        ).start()
+    else:
+        threading.Thread(target=weight_calculator.calculate_weights, daemon=True).start()
 
     return jsonify({"status": "ok"}), 201
 
