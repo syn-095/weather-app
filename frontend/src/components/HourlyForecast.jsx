@@ -64,7 +64,7 @@ function PrecipTooltip({ active, payload, label }) {
       <p className="text-slate-400 mb-1">{label}</p>
       {payload.map((p) => p.value != null && (
         <p key={p.name} style={{ color: p.color }} className="font-semibold">
-          {p.name}: {p.value}{p.name === "Probability" ? "%" : " mm"}
+          {p.name}: {p.value}{p.name === "Rain chance" ? "%" : " mm"}
         </p>
       ))}
     </div>
@@ -279,10 +279,10 @@ export default function HourlyForecast() {
                 y={dayAvgTemp} stroke="#f87171" strokeDasharray="4 4" strokeWidth={1.5}
                 label={{ value: `avg ${dayAvgTemp}${tUnit}`, fill: "#f87171", fontSize: 10, position: "insideTopRight" }}
               />
-              <Area type="monotone" dataKey="FeelsPast"   stroke="#a78bfa" strokeWidth={1.5} strokeOpacity={0.3} fill="url(#feelsPast)"   dot={false} connectNulls legendType="none" />
-              <Area type="monotone" dataKey="TempPast"    stroke="#38bdf8" strokeWidth={2}   strokeOpacity={0.3} fill="url(#tempPast)"    dot={false} connectNulls legendType="none" />
-              <Area type="monotone" dataKey="FeelsFuture" stroke="#a78bfa" strokeWidth={1.5} strokeOpacity={1}   fill="url(#feelsFuture)" dot={false} connectNulls legendType="none" />
-              <Area type="monotone" dataKey="TempFuture"  stroke="#38bdf8" strokeWidth={2}   strokeOpacity={1}   fill="url(#tempFuture)"  dot={false} connectNulls legendType="none" />
+              <Area type="monotone" dataKey="FeelsPast"   name="Feels like"   stroke="#a78bfa" strokeWidth={1.5} strokeOpacity={0.3} fill="url(#feelsPast)"   dot={false} connectNulls legendType="none" />
+              <Area type="monotone" dataKey="TempPast"    name="Temperature"  stroke="#38bdf8" strokeWidth={2}   strokeOpacity={0.3} fill="url(#tempPast)"    dot={false} connectNulls legendType="none" />
+              <Area type="monotone" dataKey="FeelsFuture" name="Feels like"   stroke="#a78bfa" strokeWidth={1.5} strokeOpacity={1}   fill="url(#feelsFuture)" dot={false} connectNulls legendType="none" />
+              <Area type="monotone" dataKey="TempFuture"  name="Temperature"  stroke="#38bdf8" strokeWidth={2}   strokeOpacity={1}   fill="url(#tempFuture)"  dot={false} connectNulls legendType="none" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -301,13 +301,13 @@ export default function HourlyForecast() {
                 <YAxis yAxisId="pct" orientation="right" {...yProps} tickFormatter={(v) => `${v}%`} domain={[0, 100]} />
               )}
               <Tooltip content={<PrecipTooltip />} />
-              <Bar yAxisId="mm" dataKey="Precip" radius={[3,3,0,0]}>
+              <Bar yAxisId="mm" dataKey="Precip" name="Precipitation" radius={[3,3,0,0]}>
                 {chartData.map((entry, i) => (
                   <Cell key={i} fill="#38bdf8" fillOpacity={entry.isPast ? 0.15 : 0.7} />
                 ))}
               </Bar>
               {hasProbability && (
-                <Area yAxisId="pct" type="monotone" dataKey="Probability" stroke="#818cf8" strokeWidth={2} fill="none" dot={false} connectNulls />
+                <Area yAxisId="pct" type="monotone" dataKey="Probability" name="Rain chance" stroke="#818cf8" strokeWidth={2} fill="none" dot={false} connectNulls />
               )}
             </BarChart>
           </ResponsiveContainer>
@@ -337,8 +337,8 @@ export default function HourlyForecast() {
                 y={fmtWind(avgWind)} stroke="#f87171" strokeDasharray="4 4" strokeWidth={1.5}
                 label={{ value: `avg ${fmtWind(avgWind)} ${wUnit}`, fill: "#f87171", fontSize: 10, position: "insideTopRight" }}
               />
-              <Area type="monotone" dataKey="WindPast"   stroke="#2dd4bf" strokeWidth={2} strokeOpacity={0.3} fill="url(#windPast)"   dot={false} connectNulls legendType="none" />
-              <Area type="monotone" dataKey="WindFuture" stroke="#2dd4bf" strokeWidth={2} strokeOpacity={1}   fill="url(#windFuture)" dot={false} connectNulls legendType="none" />
+              <Area type="monotone" dataKey="WindPast"   name="Wind" stroke="#2dd4bf" strokeWidth={2} strokeOpacity={0.3} fill="url(#windPast)"   dot={false} connectNulls legendType="none" />
+              <Area type="monotone" dataKey="WindFuture" name="Wind" stroke="#2dd4bf" strokeWidth={2} strokeOpacity={1}   fill="url(#windFuture)" dot={false} connectNulls legendType="none" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
