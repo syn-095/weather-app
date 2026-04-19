@@ -567,9 +567,67 @@ def admin_weights():
         return _login_page()
 
     msg = request.args.get("msg", "")
+    client = get_client()
+
+    # ── Diagnostics: count rows and find matching pairs ──────────────────────
+    def _count(table, **filters):
+        try:
+            q = client.table(table).select("id")
+            for k, v in filters.items():
+                q = q.eq(k, v)
+            return len(q.execute().data or [])
+        except Exception:
+            return "?"
+
+    snap_count   = _count("forecast_snapshots")
+    act_om_count = _count("actuals", source="open_meteo_historical")
+    act_gt_count = _count("actuals", source="user_ground_truth")
+
+    # Count overlapping (lat, lon, date) pairs between snapshots and actuals
+    try:
+        snaps = client.table("forecast_snapshots") \
+            .select("lat,lon,forecast_for_date").execute().data or []
+        acts  = client.table("actuals") \
+            .select("lat,lon,date").execute().data or []
+        def _rnd(v):
+            try: return round(float(v), 4)
+            except: return v
+        snap_keys = {(_rnd(s["lat"]), _rnd(s["lon"]), s["forecast_for_date"]) for s in snaps}
+        act_keys  = {(_rnd(a["lat"]), _rnd(a["lon"]), a["date"]) for a in acts}
+        matching  = len(snap_keys & act_keys)
+    except Exception:
+        matching = "?"
+
+    def _stat(label, value, color="#94a3b8", note=""):
+        note_html = (
+            f'<div style="font-size:10px;color:#334155;margin-top:1px">{note}</div>'
+            if note else ""
+        )
+        return (
+            f'<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);'
+            f'border-radius:12px;padding:12px 16px;text-align:center">'
+            f'<div style="font-size:22px;font-weight:800;color:{color}">{value}</div>'
+            f'<div style="font-size:11px;color:#475569;margin-top:2px">{label}</div>'
+            f'{note_html}'
+            f'</div>'
+        )
+
+    match_color = "#34d399" if isinstance(matching, int) and matching > 0 else "#f87171"
+    diag_html = f"""
+    <div style="margin-bottom:20px">
+      <p style="font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Pipeline diagnostics</p>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px">
+        {_stat("Forecast snapshots", snap_count, "#818cf8")}
+        {_stat("OM actuals", act_om_count, "#38bdf8", "open-meteo historical")}
+        {_stat("GT actuals", act_gt_count, "#2dd4bf", "user ground truth")}
+        {_stat("Matching pairs", matching, match_color, "snapshots ∩ actuals")}
+        {_stat("Weight rows", len(rows) if isinstance(rows, list) else "?", "#34d399" if rows else "#f87171")}
+      </div>
+      {f'<p style="color:#f87171;font-size:12px;margin-top:10px">⚠️ No matching snapshot/actuals pairs found — weights cannot be calculated yet. Check that forecasts are being queried and actuals are being fetched.</p>' if matching == 0 else ''}
+    </div>"""
 
     try:
-        rows = get_client().table("provider_weights") \
+        rows = client.table("provider_weights") \
             .select("*") \
             .order("provider") \
             .execute().data or []
@@ -678,7 +736,7 @@ def admin_weights():
     )
 
     subtitle = f"{len(rows)} weight entries · {len(PROVIDERS)} providers"
-    content  = msg_html + recalc_btn + legend + table
+    content  = msg_html + diag_html + recalc_btn + legend + table
 
     resp = make_response(_page(secret, "weights", content, subtitle))
     resp.set_cookie("admin_secret", secret, max_age=86400 * 30, httponly=True)
