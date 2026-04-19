@@ -612,6 +612,14 @@ def admin_weights():
             f'</div>'
         )
 
+    try:
+        rows = client.table("provider_weights") \
+            .select("*") \
+            .order("provider") \
+            .execute().data or []
+    except Exception:
+        rows = []
+
     match_color = "#34d399" if isinstance(matching, int) and matching > 0 else "#f87171"
     diag_html = f"""
     <div style="margin-bottom:20px">
@@ -621,18 +629,10 @@ def admin_weights():
         {_stat("OM actuals", act_om_count, "#38bdf8", "open-meteo historical")}
         {_stat("GT actuals", act_gt_count, "#2dd4bf", "user ground truth")}
         {_stat("Matching pairs", matching, match_color, "snapshots ∩ actuals")}
-        {_stat("Weight rows", len(rows) if isinstance(rows, list) else "?", "#34d399" if rows else "#f87171")}
+        {_stat("Weight rows", len(rows), "#34d399" if rows else "#f87171")}
       </div>
       {f'<p style="color:#f87171;font-size:12px;margin-top:10px">⚠️ No matching snapshot/actuals pairs found — weights cannot be calculated yet. Check that forecasts are being queried and actuals are being fetched.</p>' if matching == 0 else ''}
     </div>"""
-
-    try:
-        rows = client.table("provider_weights") \
-            .select("*") \
-            .order("provider") \
-            .execute().data or []
-    except Exception:
-        rows = []
 
     # Build nested dict: provider -> metric -> row
     data = {}
