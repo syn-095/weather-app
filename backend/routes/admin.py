@@ -1,4 +1,4 @@
-from flask import Blueprint, request, make_response, redirect
+from flask import Blueprint, request, make_response, redirect, jsonify
 import os
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
@@ -794,6 +794,85 @@ def admin_weights_recalculate():
         msg = f"Recalculation+failed:+{exc}"
 
     return redirect(f"/api/admin/weights?secret={secret}&msg={msg}")
+
+
+@admin_bp.route("/admin/weights/debug-actuals")
+def admin_weights_debug_actuals():
+    """Synchronously run actuals fetch for the most recent snapshot location and return diagnostic JSON."""
+    authed, secret = _check_auth(request)
+    if not authed:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    import traceback
+    import logging
+    import services.actuals_fetcher as actuals_fetcher
+
+    # Pick a lat/lon from a recent forecast snapshot
+    client = get_client()
+    try:
+        snaps = client.table("forecast_snapshots") \
+            .select("lat,lon") \
+            .order("captured_at", desc=True) \
+            .limit(1) \
+            .execute().data or []
+    except Exception as exc:
+        return jsonify({"error": f"Could not load snapshots: {exc}"}), 500
+
+    if not snaps:
+        return jsonify({"error": "No forecast snapshots found — load the app first"}), 404
+
+    lat = float(snaps[0]["lat"])
+    lon = float(snaps[0]["lon"])
+
+    log_capture = []
+
+    # Temporarily add a handler to capture logs from actuals_fetcher
+    class _Capture(logging.Handler):
+        def emit(self, record):
+            log_capture.append(self.format(record))
+
+    handler = _Capture()
+    logger = logging.getLogger("services.actuals_fetcher")
+    logger.addHandler(handler)
+
+    result = {"lat": lat, "lon": lon}
+    try:
+        # Call the internal OM fetch directly so we can capture what it returns
+        from datetime import date, timedelta
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+
+        import requests as _req
+        resp = _req.get("https://api.open-meteo.com/v1/forecast", params={
+            "latitude":       lat,
+            "longitude":      lon,
+            "past_days":      2,
+            "forecast_days":  0,
+            "daily": [
+                "temperature_2m_max", "temperature_2m_min",
+                "precipitation_sum", "wind_speed_10m_max", "weathercode",
+            ],
+            "timezone":       "UTC",
+            "wind_speed_unit": "kmh",
+        }, timeout=10)
+        result["om_status"] = resp.status_code
+        result["om_response"] = resp.json()
+        result["yesterday"] = yesterday
+
+        # Try to insert into actuals
+        stored = actuals_fetcher._fetch_om_actuals(lat, lon, yesterday)
+        result["fetch_om_stored"] = stored
+
+        # Try lifting ground truth
+        lifted = actuals_fetcher._lift_ground_truth(lat, lon)
+        result["lift_gt_stored"] = lifted
+
+    except Exception as exc:
+        result["exception"] = traceback.format_exc()
+    finally:
+        logger.removeHandler(handler)
+
+    result["logs"] = log_capture
+    return jsonify(result)
 
 
 def _login_page():
