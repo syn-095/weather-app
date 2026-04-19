@@ -57,7 +57,7 @@ def log_snapshots(lat: float, lon: float, provider_daily_pairs: list, today: dat
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=_DEDUP_HOURS)).isoformat()
     try:
         existing_resp = client.table("forecast_snapshots") \
-            .select("provider,forecast_for_date") \
+            .select("provider,forecast_for_date,captured_at") \
             .eq("lat", lat_r) \
             .eq("lon", lon_r) \
             .execute()

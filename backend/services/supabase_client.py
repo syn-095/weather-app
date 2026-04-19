@@ -31,6 +31,11 @@ class _Table:
         self._op = "insert"
         return self
 
+    def upsert(self, data, on_conflict=None):  # on_conflict unused — PostgREST uses table UNIQUE constraints
+        self._insert_data = data
+        self._op = "upsert"
+        return self
+
     def update(self, data):
         self._update_data = data
         self._op = "update"
@@ -65,6 +70,14 @@ class _Table:
         if op == "insert":
             r = _requests.post(url, json=self._insert_data,
                                headers={**_headers(), "Prefer": "return=minimal"},
+                               timeout=10)
+            r.raise_for_status()
+            return type("R", (), {"data": []})()
+
+        if op == "upsert":
+            r = _requests.post(url, json=self._insert_data,
+                               headers={**_headers(),
+                                        "Prefer": "resolution=merge-duplicates,return=minimal"},
                                timeout=10)
             r.raise_for_status()
             return type("R", (), {"data": []})()
