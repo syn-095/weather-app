@@ -183,6 +183,35 @@ def admin_feedback():
     return resp
 
 
+_GT_ICONS = {
+    "clear": "☀️", "partly_cloudy": "⛅", "overcast": "☁️",
+    "rain": "🌧", "snow": "❄️", "mist": "🌫", "storm": "⛈",
+}
+_GT_LABELS = {
+    "clear": "Clear", "partly_cloudy": "Partly cloudy", "overcast": "Overcast",
+    "rain": "Rain", "snow": "Snow", "mist": "Mist", "storm": "Storm",
+}
+_BIN_LABELS = {
+    "clear": "Clear", "cloudy": "Cloudy",
+    "precip_light": "Light rain", "precip_heavy": "Heavy rain",
+    "snow": "Snow", "storm": "Storm",
+}
+_GT_TO_BIN = {
+    "clear": "clear", "partly_cloudy": "cloudy", "overcast": "cloudy",
+    "mist": "cloudy", "rain": "precip_light", "storm": "storm", "snow": "snow",
+}
+
+
+def _admin_dist_km(lat1, lon1, lat2, lon2):
+    import math
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + \
+        math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * \
+        math.sin(dlon / 2) ** 2
+    return 6371 * 2 * math.asin(math.sqrt(max(a, 0)))
+
+
 @admin_bp.route("/admin/ground-truth")
 def admin_ground_truth():
     authed, secret = _check_auth(request)
@@ -190,80 +219,222 @@ def admin_ground_truth():
         return _login_page()
 
     msg = request.args.get("msg", "")
+    client = get_client()
 
-    result = get_client().table("ground_truth") \
-        .select("*") \
-        .order("submitted_at", desc=True) \
-        .limit(100) \
-        .execute()
-    readings = result.data or []
+    readings = client.table("ground_truth") \
+        .select("*").order("submitted_at", desc=True).limit(200).execute().data or []
 
-    # How many are already in actuals?
     try:
-        actuals_count = len(
-            get_client().table("actuals")
-            .select("id")
-            .eq("source", "user_ground_truth")
-            .execute().data or []
-        )
+        om_actuals = client.table("actuals") \
+            .select("*").eq("source", "open_meteo_historical").execute().data or []
     except Exception:
-        actuals_count = "?"
+        om_actuals = []
 
-    CONDITION_ICONS = {
-        "clear": "☀️", "partly_cloudy": "⛅", "overcast": "☁️",
-        "rain": "🌧", "snow": "❄️", "mist": "🌫", "storm": "⛈"
-    }
+    # Build lookup: date → list of OM actual rows
+    om_by_date: dict = {}
+    for a in om_actuals:
+        om_by_date.setdefault(a.get("date", ""), []).append(a)
+
+    # Which GT readings are already lifted?
+    try:
+        lifted = client.table("actuals") \
+            .select("lat,lon,date").eq("source", "user_ground_truth").execute().data or []
+        lifted_keys = {
+            (round(float(a["lat"]), 4), round(float(a["lon"]), 4), a["date"])
+            for a in lifted if a.get("lat") and a.get("lon") and a.get("date")
+        }
+    except Exception:
+        lifted_keys = set()
+
+    def find_om(r_lat, r_lon, date_str):
+        best, best_dist = None, 100.0
+        for a in om_by_date.get(date_str, []):
+            try:
+                d = _admin_dist_km(r_lat, r_lon, float(a["lat"]), float(a["lon"]))
+                if d < best_dist:
+                    best_dist, best = d, a
+            except Exception:
+                pass
+        return best
+
+    def already_lifted(r_lat, r_lon, date_str):
+        try:
+            return (round(float(r_lat), 4), round(float(r_lon), 4), date_str) in lifted_keys
+        except Exception:
+            return False
 
     cards = ""
     for r in readings:
-        icon     = CONDITION_ICONS.get(r.get("conditions", ""), "🌡")
-        loc      = r.get("location_name") or "Unknown location"
-        temp     = f"{r['temperature_c']}°C" if r.get("temperature_c") is not None else "—"
-        name     = r.get("contributor_name") or "Anonymous"
-        time_str = (r.get("submitted_at") or "")[:16].replace("T", " ")
-        notes    = r.get("notes") or ""
+        rid       = r.get("id", "")
+        icon      = _GT_ICONS.get(r.get("conditions", ""), "🌡")
+        cond_lbl  = _GT_LABELS.get(r.get("conditions", ""), r.get("conditions", "—"))
+        loc       = r.get("location_name") or "Unknown location"
+        gt_temp   = r.get("temperature_c")
+        name      = r.get("contributor_name") or "Anonymous"
+        notes     = r.get("notes") or ""
+        submitted = (r.get("submitted_at") or "")[:10]
+        time_str  = (r.get("submitted_at") or "")[:16].replace("T", " ")
+        r_lat, r_lon = r.get("lat"), r.get("lon")
+        has_loc   = r_lat is not None and r_lon is not None
+
+        om = find_om(r_lat, r_lon, submitted) if has_loc else None
+
+        # OM comparison column
+        if om:
+            om_avg   = om.get("temp_avg_c")
+            om_max   = om.get("temp_max_c")
+            om_min   = om.get("temp_min_c")
+            om_cond  = om.get("conditions")
+            om_prec  = om.get("precipitation_mm")
+            om_wind  = om.get("wind_max_kmh")
+
+            diff_html = ""
+            if gt_temp is not None and om_avg is not None:
+                diff = round(float(gt_temp) - float(om_avg), 1)
+                col  = "#34d399" if abs(diff) <= 2 else "#f87171"
+                sign = "+" if diff >= 0 else ""
+                diff_html = f'<span style="color:{col};font-size:11px;margin-left:6px">{sign}{diff}° vs avg</span>'
+
+            gt_bin = _GT_TO_BIN.get(r.get("conditions", ""), "")
+            match  = (gt_bin == om_cond) if gt_bin and om_cond else None
+            if match is True:
+                match_html = '<span style="color:#34d399;font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px;background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.2)">✓ conditions match</span>'
+            elif match is False:
+                match_html = f'<span style="color:#f87171;font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px;background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.2)">✗ actually {_BIN_LABELS.get(om_cond, om_cond)}</span>'
+            else:
+                match_html = ""
+
+            details = " · ".join(filter(None, [
+                f"↑{om_max}° ↓{om_min}°" if om_max is not None else None,
+                f"{om_prec}mm" if om_prec is not None else None,
+                f"💨{om_wind}km/h" if om_wind is not None else None,
+            ]))
+
+            om_col = f"""<div style="font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">Open-Meteo actual</div>
+              <div style="font-size:15px;font-weight:700;color:white;margin-bottom:2px">{f'{om_avg}°C avg' if om_avg is not None else '—'}{diff_html}</div>
+              <div style="font-size:11px;color:#64748b;margin-bottom:4px">{details}</div>
+              {match_html}"""
+        elif not has_loc:
+            om_col = '<div style="color:#334155;font-size:12px">No location attached — can\'t compare</div>'
+        else:
+            om_col = '<div style="color:#334155;font-size:12px">No historical data for this date yet</div>'
+
+        is_lifted = already_lifted(r_lat, r_lon, submitted) if has_loc else False
+        lifted_badge = (
+            '<span style="color:#2dd4bf;font-size:10px;font-weight:600;padding:1px 8px;border-radius:10px;background:rgba(45,212,191,0.1);border:1px solid rgba(45,212,191,0.2)">✓ in actuals</span>'
+            if is_lifted else
+            '<span style="color:#475569;font-size:10px;padding:1px 8px;border-radius:10px;border:1px solid rgba(255,255,255,0.07)">not in actuals</span>'
+        )
+
+        lift_btn = (
+            f'<a href="/api/admin/ground-truth/lift/{rid}?secret={secret}" '
+            f'style="padding:4px 12px;border-radius:8px;font-size:12px;font-weight:600;'
+            f'background:rgba(45,212,191,0.1);color:#2dd4bf;border:1px solid rgba(45,212,191,0.25);text-decoration:none;white-space:nowrap">→ actuals</a>'
+            if (not is_lifted and has_loc) else ""
+        )
+        del_btn = (
+            f'<a href="/api/admin/ground-truth/delete/{rid}?secret={secret}" '
+            f'onclick="return confirm(\'Delete this reading?\')" '
+            f'style="padding:4px 12px;border-radius:8px;font-size:12px;font-weight:600;'
+            f'background:rgba(239,68,68,0.08);color:#f87171;border:1px solid rgba(239,68,68,0.15);text-decoration:none">🗑 delete</a>'
+        )
 
         cards += f"""
-        <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);
                     border-radius:16px;padding:16px;margin-bottom:10px">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-            <span style="font-size:24px">{icon}</span>
-            <div>
-              <div style="font-size:14px;color:white;font-weight:500">{loc}</div>
-              <div style="font-size:11px;color:#475569">{time_str} UTC · {name}</div>
+          <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:160px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+                <span style="font-size:20px">{icon}</span>
+                <span style="color:white;font-size:14px;font-weight:600">{cond_lbl}</span>
+                {f'<span style="color:#38bdf8;font-family:monospace;font-size:14px;font-weight:700">{gt_temp}°C</span>' if gt_temp is not None else ''}
+              </div>
+              <div style="font-size:11px;color:#475569">📍 {loc}</div>
+              <div style="font-size:11px;color:#334155">{time_str} UTC · {name}</div>
+              {f'<div style="font-size:11px;color:#475569;font-style:italic;margin-top:2px">{notes}</div>' if notes else ''}
             </div>
-            <div style="margin-left:auto;font-size:20px;font-weight:700;
-                        color:#38bdf8;font-family:monospace">{temp}</div>
+            <div style="flex:1;min-width:160px;padding-left:16px;border-left:1px solid rgba(255,255,255,0.06)">
+              {om_col}
+            </div>
           </div>
-          {f'<p style="font-size:12px;color:#64748b;margin:0">{notes}</p>' if notes else ''}
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+                      padding-top:10px;border-top:1px solid rgba(255,255,255,0.05)">
+            {lifted_badge}
+            <div style="margin-left:auto;display:flex;gap:6px">{lift_btn}{del_btn}</div>
+          </div>
         </div>"""
 
     if not cards:
         cards = '<p style="color:#334155;text-align:center;padding:48px 0">No readings yet.</p>'
 
-    msg_html = (
-        f'<p style="color:#34d399;font-size:13px;margin-bottom:16px">✓ {msg}</p>'
-        if msg else ""
-    )
+    msg_html = f'<p style="color:#34d399;font-size:13px;margin-bottom:16px">✓ {msg}</p>' if msg else ""
 
     backfill_btn = f"""
     <div style="margin-bottom:20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
       <a href="/api/admin/ground-truth/backfill?secret={secret}"
-         onclick="return confirm('Lift all ground truth readings into the actuals table?')"
+         onclick="return confirm('Lift ALL ground truth readings into the actuals table?')"
          style="display:inline-block;padding:9px 20px;border-radius:12px;font-size:13px;
                 font-weight:600;background:rgba(20,184,166,0.12);color:#2dd4bf;
                 border:1px solid rgba(20,184,166,0.25);text-decoration:none">
-        🔄 Backfill all readings → actuals
+        🔄 Backfill all → actuals
       </a>
-      <span style="font-size:12px;color:#475569">{actuals_count} readings already in actuals table</span>
+      <span style="font-size:12px;color:#475569">{len(lifted_keys)} of {len(readings)} readings in actuals · {len(om_actuals)} OM historical rows on record</span>
     </div>"""
 
     resp = make_response(_page(
         secret, "ground-truth", msg_html + backfill_btn + cards,
         f"{len(readings)} readings submitted"
     ))
-    resp.set_cookie("admin_secret", secret, max_age=86400*30, httponly=True)
+    resp.set_cookie("admin_secret", secret, max_age=86400 * 30, httponly=True)
     return resp
+
+
+@admin_bp.route("/admin/ground-truth/lift/<gt_id>")
+def admin_gt_lift_one(gt_id):
+    authed, secret = _check_auth(request)
+    if not authed:
+        return "Unauthorized", 401
+
+    client = get_client()
+    rows = client.table("ground_truth").select("*").eq("id", gt_id).execute().data or []
+    if not rows:
+        return redirect(f"/api/admin/ground-truth?secret={secret}&msg=Reading+not+found")
+
+    r = rows[0]
+    r_lat, r_lon = r.get("lat"), r.get("lon")
+    if r_lat is None or r_lon is None:
+        return redirect(f"/api/admin/ground-truth?secret={secret}&msg=Reading+has+no+location")
+
+    lat_r    = round(float(r_lat), 4)
+    lon_r    = round(float(r_lon), 4)
+    date_str = (r.get("submitted_at") or "")[:10]
+    gt_bin   = _GT_TO_BIN.get(r.get("conditions", ""), None)
+    temp     = r.get("temperature_c")
+
+    try:
+        client.table("actuals").insert({
+            "lat":        lat_r,
+            "lon":        lon_r,
+            "date":       date_str,
+            "source":     "user_ground_truth",
+            "temp_avg_c": round(float(temp), 1) if temp is not None else None,
+            "conditions": gt_bin,
+        }).execute()
+        msg = "Reading+moved+to+actuals"
+    except Exception as exc:
+        msg = f"Failed:+{exc}"
+
+    return redirect(f"/api/admin/ground-truth?secret={secret}&msg={msg}")
+
+
+@admin_bp.route("/admin/ground-truth/delete/<gt_id>")
+def admin_gt_delete(gt_id):
+    authed, secret = _check_auth(request)
+    if not authed:
+        return "Unauthorized", 401
+
+    get_client().table("ground_truth").delete().eq("id", gt_id).execute()
+    return redirect(f"/api/admin/ground-truth?secret={secret}&msg=Reading+deleted")
 
 
 @admin_bp.route("/admin/ground-truth/backfill")
