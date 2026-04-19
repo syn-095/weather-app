@@ -20,6 +20,12 @@ logger = logging.getLogger(__name__)
 
 _OM_URL = "https://api.open-meteo.com/v1/forecast"
 
+# In-process dedup: only attempt one OM API call per (lat, lon, date) per process
+# lifetime. Prevents hammering the free-tier rate limit on every aggregator cache miss.
+_om_fetched: set = set()
+# If we hit a 429, back off until the next calendar day.
+_om_rate_limited_until: str = ""  # ISO date string
+
 # WMO code → coarse condition bin (same mapping as forecast_logger)
 def _conditions_bin(code: int) -> str:
     if code in (0, 1):             return "clear"
@@ -83,9 +89,22 @@ def fetch_and_store_actuals(lat: float, lon: float):
 
 def _fetch_om_actuals(lat_r: float, lon_r: float, yesterday: str) -> bool:
     """Fetch Open-Meteo historical analysis for yesterday. Returns True if inserted."""
+    global _om_rate_limited_until
+
+    # Back off if we hit a 429 earlier today
+    today = date.today().isoformat()
+    if _om_rate_limited_until >= today:
+        return False
+
+    # Only hit the API once per (location, date) per process — not on every cache miss
+    dedup_key = (lat_r, lon_r, yesterday)
+    if dedup_key in _om_fetched:
+        return False
+    _om_fetched.add(dedup_key)
+
     client = get_client()
 
-    # Check if we already have this entry
+    # Check if we already have this entry in the DB
     try:
         existing = client.table("actuals") \
             .select("id") \
@@ -116,6 +135,10 @@ def _fetch_om_actuals(lat_r: float, lon_r: float, yesterday: str) -> bool:
             "timezone":       "UTC",
             "wind_speed_unit":"kmh",
         }, timeout=10)
+        if resp.status_code == 429:
+            _om_rate_limited_until = today
+            logger.warning("actuals_fetcher: Open-Meteo 429 rate limit — backing off until tomorrow")
+            return False
         resp.raise_for_status()
         data = resp.json()
     except Exception as exc:
